@@ -116,7 +116,7 @@ POST /webhook   — קבלת הודעות נכנסות
 
 | סביבה | Base URL | OAuth Redirect URI | Webhook URL |
 |-------|----------|--------------------|-------------|
-| development | `https://mia-dev.onrender.com` | `https://mia-dev.onrender.com/auth/meta/callback` | `https://mia-dev.onrender.com/webhook` |
+| development | `https://mia-social-backend.onrender.com` | `https://mia-social-backend.onrender.com/auth/meta/callback` | `https://mia-social-backend.onrender.com/webhook` |
 | production | `https://app.miasocial.co.il` | `https://app.miasocial.co.il/auth/meta/callback` | `https://app.miasocial.co.il/webhook` |
 
 > כל URL מוגדר דרך env בלבד — אין URL קשור (hardcoded) בקוד.

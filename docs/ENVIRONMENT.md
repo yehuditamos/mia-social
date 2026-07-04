@@ -73,8 +73,8 @@
 ### Development (Render)
 ```env
 APP_ENV=development
-BASE_URL=https://mia-dev.onrender.com
-META_OAUTH_REDIRECT_URI=https://mia-dev.onrender.com/auth/meta/callback
+BASE_URL=https://mia-social-backend.onrender.com
+META_OAUTH_REDIRECT_URI=https://mia-social-backend.onrender.com/auth/meta/callback
 ```
 
 ### Production
