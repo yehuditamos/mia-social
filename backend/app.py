@@ -1,15 +1,23 @@
 import os
+import traceback
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.brain.decision_layer import process_message
-from src.whatsapp.client import send_message
-
 app = Flask(__name__)
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
+
+
+def _process(phone_number, text):
+    from src.brain.decision_layer import process_message
+    return process_message(phone_number, text)
+
+
+def _send(phone_number, reply):
+    from src.whatsapp.client import send_message
+    send_message(phone_number, reply)
 
 
 @app.route("/health", methods=["GET"])
@@ -48,9 +56,9 @@ def receive_webhook():
                 text = messages[0]["text"]["body"]
                 print("MESSAGE RECEIVED FROM:", phone_number)
                 print("MESSAGE TEXT:", text)
-                reply = process_message(phone_number, text)
+                reply = _process(phone_number, text)
                 print("REPLY:", reply)
-                send_message(phone_number, reply)
+                _send(phone_number, reply)
 
     except Exception as e:
         print("WEBHOOK ERROR:", repr(e))
@@ -61,20 +69,22 @@ def receive_webhook():
 @app.route("/debug/test", methods=["GET"])
 def debug_test():
     try:
-        reply = process_message("972525383871", "היי")
+        reply = _process("972525383871", "היי")
         return reply, 200, {"Content-Type": "text/plain; charset=utf-8"}
-    except Exception as e:
-        import traceback
+    except Exception:
         return traceback.format_exc(), 500, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 @app.route("/debug/simulate-message", methods=["POST"])
 def simulate_message():
-    data = request.get_json()
-    phone_number = data.get("phone_number")
-    text = data.get("text")
-    reply = process_message(phone_number, text)
-    return jsonify({"reply": reply, "status": "ok"}), 200
+    try:
+        data = request.get_json()
+        phone_number = data.get("phone_number")
+        text = data.get("text")
+        reply = _process(phone_number, text)
+        return jsonify({"reply": reply, "status": "ok"}), 200
+    except Exception:
+        return jsonify({"error": traceback.format_exc()}), 500
 
 
 if __name__ == "__main__":
