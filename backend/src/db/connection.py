@@ -1,14 +1,15 @@
 import os
-from supabase import create_client, Client
-
-_client: Client = None
 
 
-def get_client() -> Client:
-    global _client
-    if _client is None:
-        _client = create_client(
-            os.getenv("SUPABASE_URL"),
-            os.getenv("SUPABASE_KEY"),
-        )
-    return _client
+def get_base_url() -> str:
+    return os.getenv("SUPABASE_URL").rstrip("/") + "/rest/v1"
+
+
+def get_headers(prefer: str = "return=representation") -> dict:
+    key = os.getenv("SUPABASE_KEY")
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Prefer": prefer,
+    }
