@@ -10,6 +10,11 @@ app = Flask(__name__)
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
 
 
+@app.before_request
+def log_all_requests():
+    print(f">>> INCOMING: {request.method} {request.path} from {request.remote_addr}")
+
+
 def _process(phone_number, text):
     from src.brain.decision_layer import process_message
     return process_message(phone_number, text)
