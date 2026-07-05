@@ -56,8 +56,9 @@ def receive_webhook():
                 text = messages[0]["text"]["body"]
                 print("MESSAGE RECEIVED FROM:", phone_number)
                 print("MESSAGE TEXT:", text)
+                print("PROCESS START")
                 reply = _process(phone_number, text)
-                print("REPLY:", reply)
+                print("PROCESS FINISHED — reply:", reply)
                 _send(phone_number, reply)
 
     except Exception as e:

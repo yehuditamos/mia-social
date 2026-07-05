@@ -15,4 +15,10 @@ def send_message(to: str, body: str) -> None:
         "type": "text",
         "text": {"body": body},
     }
-    requests.post(url, json=payload, headers=headers)
+    print("SEND_MESSAGE START — to:", to)
+    try:
+        res = requests.post(url, json=payload, headers=headers)
+        print("SEND_MESSAGE RESPONSE — status:", res.status_code)
+        print("SEND_MESSAGE RESPONSE — body:", res.text)
+    except Exception as e:
+        print("SEND_MESSAGE ERROR:", repr(e))
