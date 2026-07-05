@@ -58,6 +58,12 @@ def receive_webhook():
     return jsonify({"status": "received"}), 200
 
 
+@app.route("/debug/test", methods=["GET"])
+def debug_test():
+    reply = process_message("972525383871", "היי")
+    return reply, 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.route("/debug/simulate-message", methods=["POST"])
 def simulate_message():
     data = request.get_json()
