@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from src.brain.decision_layer import process_message
+from src.whatsapp.client import send_message
+
 app = Flask(__name__)
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
@@ -28,6 +31,30 @@ def verify_webhook():
 
 @app.route("/webhook", methods=["POST"])
 def receive_webhook():
+    data = request.get_json()
+    print("WEBHOOK POST RECEIVED")
+    print(data)
+    try:
+        entry = data["entry"][0]
+        changes = entry["changes"][0]
+        value = changes["value"]
+        messages = value.get("messages")
+
+        if messages:
+            phone_number = messages[0]["from"]
+            message_type = messages[0].get("type")
+
+            if message_type == "text":
+                text = messages[0]["text"]["body"]
+                print("MESSAGE RECEIVED FROM:", phone_number)
+                print("MESSAGE TEXT:", text)
+                reply = process_message(phone_number, text)
+                print("REPLY:", reply)
+                send_message(phone_number, reply)
+
+    except Exception as e:
+        print("WEBHOOK ERROR:", repr(e))
+
     return jsonify({"status": "received"}), 200
 
 
