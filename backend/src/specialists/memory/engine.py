@@ -31,7 +31,15 @@ def save_user(user: User) -> User:
         headers=get_headers(),
         json={"phone_number": user.phone_number, "name": user.name, "accessibility": user.accessibility},
     )
-    user.id = res.json()[0]["id"]
+    print("SAVE_USER status:", res.status_code)
+    print("SAVE_USER body:", res.text)
+    data = res.json()
+    if isinstance(data, list) and data:
+        user.id = data[0]["id"]
+    elif isinstance(data, dict):
+        raise Exception(f"Supabase error on save_user: {data}")
+    else:
+        raise Exception(f"Unexpected response from save_user: {data}")
     return user
 
 
