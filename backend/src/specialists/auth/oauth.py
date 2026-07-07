@@ -1,0 +1,107 @@
+import os
+import time
+import uuid
+import requests
+
+_GRAPH = "https://graph.facebook.com/v20.0"
+_DIALOG = "https://www.facebook.com/v20.0/dialog/oauth"
+_SCOPES = ",".join([
+    "pages_manage_posts",
+    "pages_read_engagement",
+    "instagram_basic",
+    "instagram_content_publish",
+])
+
+# In-memory state store — POC only, not for production
+_pending_states: dict = {}
+_STATE_TTL = 600  # 10 minutes
+
+
+def generate_oauth_url() -> str:
+    state = str(uuid.uuid4())
+    _pending_states[state] = time.time()
+
+    params = (
+        f"?client_id={os.getenv('META_APP_ID')}"
+        f"&redirect_uri={os.getenv('META_REDIRECT_URI')}"
+        f"&scope={_SCOPES}"
+        f"&response_type=code"
+        f"&state={state}"
+    )
+    return _DIALOG + params
+
+
+def validate_state(state: str) -> bool:
+    created_at = _pending_states.pop(state, None)
+    if created_at is None:
+        return False
+    return (time.time() - created_at) < _STATE_TTL
+
+
+def exchange_code_for_token(code: str) -> str:
+    res = requests.get(
+        f"{_GRAPH}/oauth/access_token",
+        params={
+            "client_id": os.getenv("META_APP_ID"),
+            "client_secret": os.getenv("META_APP_SECRET"),
+            "redirect_uri": os.getenv("META_REDIRECT_URI"),
+            "code": code,
+        },
+    )
+    data = res.json()
+    print("TOKEN EXCHANGE:", data)
+    if "error" in data:
+        raise Exception(f"Token exchange failed: {data['error']}")
+    return data["access_token"]
+
+
+def get_long_lived_token(short_token: str) -> dict:
+    res = requests.get(
+        f"{_GRAPH}/oauth/access_token",
+        params={
+            "grant_type": "fb_exchange_token",
+            "client_id": os.getenv("META_APP_ID"),
+            "client_secret": os.getenv("META_APP_SECRET"),
+            "fb_exchange_token": short_token,
+        },
+    )
+    data = res.json()
+    print("LONG_LIVED TOKEN:", data)
+    if "error" in data:
+        raise Exception(f"Long-lived token exchange failed: {data['error']}")
+    return data
+
+
+def get_connected_assets(user_token: str) -> dict:
+    pages_res = requests.get(
+        f"{_GRAPH}/me/accounts",
+        params={"access_token": user_token, "fields": "id,name,access_token"},
+    )
+    pages_data = pages_res.json()
+    print("PAGES:", pages_data)
+
+    assets = {"pages": [], "instagram_accounts": []}
+
+    for page in pages_data.get("data", []):
+        assets["pages"].append({"id": page["id"], "name": page["name"]})
+
+        ig_res = requests.get(
+            f"{_GRAPH}/{page['id']}",
+            params={
+                "fields": "instagram_business_account{id,name,username}",
+                "access_token": page.get("access_token", user_token),
+            },
+        )
+        ig_data = ig_res.json()
+        print(f"INSTAGRAM FOR PAGE {page['id']}:", ig_data)
+
+        ig = ig_data.get("instagram_business_account")
+        if ig:
+            assets["instagram_accounts"].append({
+                "ig_user_id": ig["id"],
+                "name": ig.get("name"),
+                "username": ig.get("username"),
+                "linked_page_id": page["id"],
+            })
+
+    return assets

@@ -1,6 +1,6 @@
 import os
 import traceback
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -70,6 +70,50 @@ def receive_webhook():
         print("WEBHOOK ERROR:", repr(e))
 
     return jsonify({"status": "received"}), 200
+
+
+@app.route("/auth/meta")
+def auth_meta():
+    from src.specialists.auth.oauth import generate_oauth_url
+    url = generate_oauth_url()
+    print("OAUTH URL GENERATED:", url)
+    return redirect(url)
+
+
+@app.route("/auth/meta/callback")
+def auth_meta_callback():
+    from src.specialists.auth.oauth import validate_state, exchange_code_for_token, get_long_lived_token, get_connected_assets
+
+    error = request.args.get("error")
+    if error:
+        print("OAUTH ERROR:", error, request.args.get("error_description"))
+        return f"<h2>Authentication failed</h2><p>{error}</p>", 400
+
+    code = request.args.get("code")
+    state = request.args.get("state")
+
+    if not state or not validate_state(state):
+        print("INVALID OR EXPIRED STATE:", state)
+        return "<h2>Invalid or expired session</h2><p>Please try again.</p>", 400
+
+    if not code:
+        return "<h2>Missing authorization code</h2>", 400
+
+    try:
+        short_token = exchange_code_for_token(code)
+        long_lived = get_long_lived_token(short_token)
+        assets = get_connected_assets(long_lived["access_token"])
+
+        print("=== CONNECTED ASSETS ===")
+        print("Pages:", assets["pages"])
+        print("Instagram accounts:", assets["instagram_accounts"])
+        print("========================")
+
+        return "<h2>Connected successfully!</h2><p>Check Render logs for the connected assets.</p>", 200
+
+    except Exception as e:
+        print("OAUTH CALLBACK ERROR:", repr(e))
+        return f"<h2>Error</h2><pre>{repr(e)}</pre>", 500
 
 
 @app.route("/debug/test", methods=["GET"])
