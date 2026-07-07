@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import requests
+from urllib.parse import urlencode
 
 _GRAPH = "https://graph.facebook.com/v20.0"
 _DIALOG = "https://www.facebook.com/v20.0/dialog/oauth"
@@ -21,14 +22,14 @@ def generate_oauth_url() -> str:
     state = str(uuid.uuid4())
     _pending_states[state] = time.time()
 
-    params = (
-        f"?client_id={os.getenv('META_APP_ID')}"
-        f"&redirect_uri={os.getenv('META_REDIRECT_URI')}"
-        f"&scope={_SCOPES}"
-        f"&response_type=code"
-        f"&state={state}"
-    )
-    return _DIALOG + params
+    params = urlencode({
+        "client_id": os.getenv("META_APP_ID"),
+        "redirect_uri": os.getenv("META_REDIRECT_URI"),
+        "scope": _SCOPES,
+        "response_type": "code",
+        "state": state,
+    })
+    return f"{_DIALOG}?{params}"
 
 
 def validate_state(state: str) -> bool:
