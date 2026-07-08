@@ -38,6 +38,8 @@ def validate_state(state: str) -> bool:
 
 
 def exchange_code_for_token(code: str) -> str:
+    secret = os.getenv("META_APP_SECRET")
+    print("APP SECRET LENGTH:", len(secret) if secret else None)
     res = requests.get(
         f"{_GRAPH}/oauth/access_token",
         params={
