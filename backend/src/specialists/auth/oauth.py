@@ -14,6 +14,8 @@ _STATE_TTL = 600  # 10 minutes
 def generate_oauth_url() -> str:
     state = str(uuid.uuid4())
     _pending_states[state] = time.time()
+    print(f"STATE GENERATED: {state}")
+    print(f"PENDING STATES AFTER ADD: {list(_pending_states.keys())}")
 
     params = urlencode({
         "client_id": os.getenv("META_APP_ID"),
@@ -26,8 +28,11 @@ def generate_oauth_url() -> str:
 
 
 def validate_state(state: str) -> bool:
+    print(f"STATE RECEIVED IN CALLBACK: {state}")
+    print(f"PENDING STATES BEFORE VALIDATE: {list(_pending_states.keys())}")
     created_at = _pending_states.pop(state, None)
     if created_at is None:
+        print("STATE NOT FOUND IN PENDING STATES — dict is empty or process restarted")
         return False
     return (time.time() - created_at) < _STATE_TTL
 
