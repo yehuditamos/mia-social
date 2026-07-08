@@ -6,13 +6,6 @@ from urllib.parse import urlencode
 
 _GRAPH = "https://graph.facebook.com/v20.0"
 _DIALOG = "https://www.facebook.com/v20.0/dialog/oauth"
-_SCOPES = ",".join([
-    "pages_manage_posts",
-    "pages_read_engagement",
-    "instagram_basic",
-    "instagram_content_publish",
-])
-
 # In-memory state store — POC only, not for production
 _pending_states: dict = {}
 _STATE_TTL = 600  # 10 minutes
@@ -25,7 +18,7 @@ def generate_oauth_url() -> str:
     params = urlencode({
         "client_id": os.getenv("META_APP_ID"),
         "redirect_uri": os.getenv("META_REDIRECT_URI"),
-        "scope": _SCOPES,
+        "config_id": os.getenv("META_CONFIG_ID"),
         "response_type": "code",
         "state": state,
     })
