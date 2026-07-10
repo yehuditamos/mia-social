@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   initiated_by    UUID REFERENCES users(id),
   channel         TEXT NOT NULL DEFAULT 'whatsapp',
   channel_user_id TEXT NOT NULL,
+  purpose         TEXT NOT NULL DEFAULT 'meta_connect',
+  status          TEXT NOT NULL DEFAULT 'pending',
   expires_at      TIMESTAMPTZ NOT NULL,
   used_at         TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()

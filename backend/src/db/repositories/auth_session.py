@@ -8,7 +8,8 @@ SESSION_TTL_MINUTES = 10
 
 class AuthSessionRepository:
 
-    def create(self, business_id: str, channel: str, channel_user_id: str, initiated_by: str = None) -> str:
+    def create(self, business_id: str, channel: str, channel_user_id: str,
+               initiated_by: str = None, purpose: str = "meta_connect") -> str:
         state = str(uuid.uuid4())
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=SESSION_TTL_MINUTES)).isoformat()
 
@@ -17,6 +18,8 @@ class AuthSessionRepository:
             "business_id": business_id,
             "channel": channel,
             "channel_user_id": channel_user_id,
+            "purpose": purpose,
+            "status": "pending",
             "expires_at": expires_at,
         }
         if initiated_by:
@@ -49,14 +52,17 @@ class AuthSessionRepository:
         if datetime.now(timezone.utc) > expires_at:
             raise ValueError("Session expired")
 
-        if session.get("used_at"):
-            raise ValueError("Session already used")
+        if session.get("status") != "pending":
+            raise ValueError(f"Session is not pending (status: {session.get('status')})")
 
         requests.patch(
             f"{get_base_url()}/auth_sessions",
             headers=get_headers(prefer="return=minimal"),
             params={"state": f"eq.{state}"},
-            json={"used_at": datetime.now(timezone.utc).isoformat()},
+            json={
+                "used_at": datetime.now(timezone.utc).isoformat(),
+                "status": "completed",
+            },
         )
 
         return {
