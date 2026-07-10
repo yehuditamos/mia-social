@@ -1,22 +1,13 @@
 import os
-import time
-import uuid
 import requests
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 _GRAPH = "https://graph.facebook.com/v20.0"
 _DIALOG = "https://www.facebook.com/v20.0/dialog/oauth"
-# In-memory state store — POC only, not for production
-_pending_states: dict = {}
-_STATE_TTL = 600  # 10 minutes
 
 
-def generate_oauth_url() -> str:
-    state = str(uuid.uuid4())
-    _pending_states[state] = time.time()
-    print(f"STATE GENERATED: {state}")
-    print(f"PENDING STATES AFTER ADD: {list(_pending_states.keys())}")
-
+def generate_oauth_url(state: str) -> str:
     params = urlencode({
         "client_id": os.getenv("META_APP_ID"),
         "redirect_uri": os.getenv("META_REDIRECT_URI"),
@@ -27,16 +18,6 @@ def generate_oauth_url() -> str:
     return f"{_DIALOG}?{params}"
 
 
-def validate_state(state: str) -> bool:
-    print(f"STATE RECEIVED IN CALLBACK: {state}")
-    print(f"PENDING STATES BEFORE VALIDATE: {list(_pending_states.keys())}")
-    created_at = _pending_states.pop(state, None)
-    if created_at is None:
-        print("STATE NOT FOUND IN PENDING STATES — dict is empty or process restarted")
-        return False
-    return (time.time() - created_at) < _STATE_TTL
-
-
 def exchange_code_for_token(code: str) -> str:
     secret = os.getenv("META_APP_SECRET")
     print("APP SECRET LENGTH:", len(secret) if secret else None)
@@ -44,7 +25,7 @@ def exchange_code_for_token(code: str) -> str:
         f"{_GRAPH}/oauth/access_token",
         params={
             "client_id": os.getenv("META_APP_ID"),
-            "client_secret": os.getenv("META_APP_SECRET"),
+            "client_secret": secret,
             "redirect_uri": os.getenv("META_REDIRECT_URI"),
             "code": code,
         },
@@ -103,6 +84,7 @@ def get_connected_assets(user_token: str) -> dict:
                 "name": ig.get("name"),
                 "username": ig.get("username"),
                 "linked_page_id": page["id"],
+                "linked_page_name": page["name"],
             })
 
     return assets

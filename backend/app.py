@@ -74,15 +74,40 @@ def receive_webhook():
 
 @app.route("/auth/meta")
 def auth_meta():
+    from src.services.identity import IdentityService
+    from src.db.repositories.auth_session import AuthSessionRepository
     from src.specialists.auth.oauth import generate_oauth_url
-    url = generate_oauth_url()
-    print("OAUTH URL GENERATED:", url)
+
+    phone = request.args.get("phone")
+    if not phone:
+        return "<h2>Missing ?phone= parameter</h2>", 400
+
+    try:
+        identity = IdentityService()
+        user, business = identity.resolve("whatsapp", phone)
+    except ValueError as e:
+        print("IDENTITY ERROR:", repr(e))
+        return f"<h2>Identity error</h2><p>{e}</p>", 400
+
+    session_repo = AuthSessionRepository()
+    state = session_repo.create(
+        business_id=business.id,
+        channel="whatsapp",
+        channel_user_id=phone,
+        initiated_by=user.id,
+    )
+
+    url = generate_oauth_url(state)
+    print("OAUTH URL:", url)
     return redirect(url)
 
 
 @app.route("/auth/meta/callback")
 def auth_meta_callback():
-    from src.specialists.auth.oauth import validate_state, exchange_code_for_token, get_long_lived_token, get_connected_assets
+    from src.db.repositories.auth_session import AuthSessionRepository
+    from src.db.repositories.social_account import SocialAccountRepository
+    from src.specialists.auth.oauth import exchange_code_for_token, get_long_lived_token, get_connected_assets
+    from datetime import datetime, timedelta, timezone
 
     error = request.args.get("error")
     if error:
@@ -92,17 +117,58 @@ def auth_meta_callback():
     code = request.args.get("code")
     state = request.args.get("state")
 
-    if not state or not validate_state(state):
-        print("INVALID OR EXPIRED STATE:", state)
-        return "<h2>Invalid or expired session</h2><p>Please try again.</p>", 400
+    if not state or not code:
+        return "<h2>Missing parameters</h2>", 400
 
-    if not code:
-        return "<h2>Missing authorization code</h2>", 400
+    try:
+        session = AuthSessionRepository().consume(state)
+    except ValueError as e:
+        print("SESSION ERROR:", repr(e))
+        return f"<h2>Invalid or expired session</h2><p>{e}</p>", 400
+
+    business_id = session["business_id"]
 
     try:
         short_token = exchange_code_for_token(code)
         long_lived = get_long_lived_token(short_token)
-        assets = get_connected_assets(long_lived["access_token"])
+        access_token = long_lived["access_token"]
+        expires_in = long_lived.get("expires_in", 0)
+        token_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+
+        assets = get_connected_assets(access_token)
+
+        social_repo = SocialAccountRepository()
+
+        for ig in assets["instagram_accounts"]:
+            social_repo.upsert(
+                business_id=business_id,
+                platform="instagram",
+                platform_account_id=ig["ig_user_id"],
+                record={
+                    "account_username": ig.get("username"),
+                    "account_display_name": ig.get("name"),
+                    "page_id": ig.get("linked_page_id"),
+                    "page_name": ig.get("linked_page_name"),
+                    "access_token": access_token,
+                    "token_expires_at": token_expires_at,
+                    "metadata": ig,
+                },
+            )
+
+        for page in assets["pages"]:
+            social_repo.upsert(
+                business_id=business_id,
+                platform="facebook",
+                platform_account_id=page["id"],
+                record={
+                    "account_display_name": page["name"],
+                    "page_id": page["id"],
+                    "page_name": page["name"],
+                    "access_token": access_token,
+                    "token_expires_at": token_expires_at,
+                    "metadata": page,
+                },
+            )
 
         print("=== CONNECTED ASSETS ===")
         print("Pages:", assets["pages"])
