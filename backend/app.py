@@ -44,30 +44,56 @@ def verify_webhook():
 
 @app.route("/webhook", methods=["POST"])
 def receive_webhook():
-    data = request.get_json()
-    print("WEBHOOK POST RECEIVED")
-    print(data)
+    print("CHECKPOINT 1: webhook POST received")
+    print("Content-Type:", request.content_type)
+
+    data = request.get_json(force=True, silent=True)
+    if data is None:
+        print("CHECKPOINT 2 FAILED: could not parse JSON body")
+        print("Raw body:", request.get_data(as_text=True)[:500])
+        return jsonify({"status": "received"}), 200
+
+    print("CHECKPOINT 2: JSON parsed OK")
+
     try:
         entry = data["entry"][0]
         changes = entry["changes"][0]
         value = changes["value"]
         messages = value.get("messages")
-
-        if messages:
-            phone_number = messages[0]["from"]
-            message_type = messages[0].get("type")
-
-            if message_type == "text":
-                text = messages[0]["text"]["body"]
-                print("MESSAGE RECEIVED FROM:", phone_number)
-                print("MESSAGE TEXT:", text)
-                print("PROCESS START")
-                reply = _process(phone_number, text)
-                print("PROCESS FINISHED — reply:", reply)
-                _send(phone_number, reply)
-
+        print("CHECKPOINT 3: payload parsed, messages:", bool(messages))
     except Exception as e:
-        print("WEBHOOK ERROR:", repr(e))
+        print("CHECKPOINT 3 FAILED: payload parse error:", repr(e))
+        return jsonify({"status": "received"}), 200
+
+    if not messages:
+        print("CHECKPOINT 4: no messages in payload (status update or other event)")
+        return jsonify({"status": "received"}), 200
+
+    print("CHECKPOINT 4: message found")
+
+    phone_number = messages[0]["from"]
+    message_type = messages[0].get("type")
+    print("CHECKPOINT 5: from:", phone_number, "type:", message_type)
+
+    if message_type != "text":
+        print("CHECKPOINT 6 SKIP: non-text message type:", message_type)
+        return jsonify({"status": "received"}), 200
+
+    text = messages[0]["text"]["body"]
+    print("CHECKPOINT 6: text received:", text)
+
+    try:
+        reply = _process(phone_number, text)
+        print("CHECKPOINT 7: process OK, reply length:", len(reply))
+    except Exception as e:
+        print("CHECKPOINT 7 FAILED: _process error:", repr(e))
+        return jsonify({"status": "received"}), 200
+
+    try:
+        _send(phone_number, reply)
+        print("CHECKPOINT 8: send_message called")
+    except Exception as e:
+        print("CHECKPOINT 8 FAILED: _send error:", repr(e))
 
     return jsonify({"status": "received"}), 200
 
