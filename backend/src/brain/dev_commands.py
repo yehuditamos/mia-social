@@ -13,9 +13,12 @@ _DEV_COMMANDS = {"/reset", "/debug", "/state", "/business"}
 
 
 def is_dev_command(message: str) -> bool:
-    if os.getenv("APP_ENV") != "development":
+    env = os.getenv("APP_ENV")
+    msg = message.strip().lower()
+    print(f"DEV_CMD CHECK: APP_ENV={env!r} message={msg!r} is_cmd={msg in _DEV_COMMANDS}")
+    if env != "development":
         return False
-    return message.strip().lower() in _DEV_COMMANDS
+    return msg in _DEV_COMMANDS
 
 
 def handle_dev_command(user: User, message: str) -> str:
