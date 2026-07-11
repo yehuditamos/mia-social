@@ -128,6 +128,20 @@ def auth_meta():
     return redirect(url)
 
 
+@app.route("/connect/<state>")
+def connect_redirect(state):
+    from src.db.repositories.auth_session import AuthSessionRepository
+    from src.specialists.auth.oauth import generate_oauth_url
+
+    try:
+        AuthSessionRepository().validate_exists(state)
+    except ValueError as e:
+        return f"<h2>Invalid or expired link</h2><p>{e}</p>", 400
+
+    url = generate_oauth_url(state)
+    return redirect(url)
+
+
 @app.route("/auth/meta/callback")
 def auth_meta_callback():
     from src.db.repositories.auth_session import AuthSessionRepository

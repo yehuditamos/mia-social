@@ -34,6 +34,22 @@ class AuthSessionRepository:
         print("AUTH_SESSION CREATE body:", res.text)
         return state
 
+    def validate_exists(self, state: str) -> None:
+        res = requests.get(
+            f"{get_base_url()}/auth_sessions",
+            headers=get_headers(),
+            params={"state": f"eq.{state}", "limit": "1"},
+        )
+        data = res.json()
+        if not data:
+            raise ValueError("Session not found")
+        session = data[0]
+        expires_at = datetime.fromisoformat(session["expires_at"].replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires_at:
+            raise ValueError("Session expired")
+        if session.get("status") != "pending":
+            raise ValueError("Session already used")
+
     def consume(self, state: str) -> dict:
         res = requests.get(
             f"{get_base_url()}/auth_sessions",
