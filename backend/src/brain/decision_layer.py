@@ -1,6 +1,9 @@
+import os
+from personality.loader import get_string
 from src.specialists.memory.engine import (
     get_user,
     save_user,
+    get_business,
     get_conversation_state,
     create_conversation_state,
 )
@@ -9,8 +12,23 @@ from src.specialists.conversation.onboarding import NUM_STEPS
 from src.brain.router import route
 from src.brain.main_menu import handle_post_onboarding
 from src.brain.dev_commands import is_dev_command, handle_dev_command
+from src.db.repositories.social_account import SocialAccountRepository
+from src.db.repositories.auth_session import AuthSessionRepository
+from src.specialists.auth.oauth import generate_oauth_url
 
 DEFAULT_LANGUAGE = "he"
+_BASE_URL = os.getenv("BASE_URL", "https://mia-social-backend.onrender.com")
+
+
+def _make_connect_url(user, business) -> str:
+    state = AuthSessionRepository().create(
+        business_id=business.id,
+        channel="whatsapp",
+        channel_user_id=user.phone_number,
+        initiated_by=user.id,
+        purpose="meta_connect",
+    )
+    return generate_oauth_url(state)
 
 
 def process_message(phone_number: str, message: str) -> str:
@@ -31,6 +49,10 @@ def process_message(phone_number: str, message: str) -> str:
         return route(user, None, message, DEFAULT_LANGUAGE)
 
     if state.step >= NUM_STEPS:
+        business = get_business(user.id)
+        if business and not SocialAccountRepository().has_active_accounts(business.id):
+            oauth_url = _make_connect_url(user, business)
+            return get_string("connect_accounts_prompt", language=DEFAULT_LANGUAGE, oauth_url=oauth_url)
         return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)

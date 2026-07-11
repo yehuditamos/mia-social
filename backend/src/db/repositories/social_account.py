@@ -1,10 +1,18 @@
-import json
 import requests
 from datetime import datetime, timezone
 from src.db.connection import get_base_url, get_headers
 
 
 class SocialAccountRepository:
+
+    def has_active_accounts(self, business_id: str) -> bool:
+        res = requests.get(
+            f"{get_base_url()}/social_accounts",
+            headers=get_headers(),
+            params={"business_id": f"eq.{business_id}", "status": "eq.active", "limit": "1"},
+        )
+        data = res.json()
+        return isinstance(data, list) and len(data) > 0
 
     def upsert(self, business_id: str, platform: str, platform_account_id: str, record: dict) -> None:
         payload = {
