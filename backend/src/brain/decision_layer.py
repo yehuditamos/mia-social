@@ -1,4 +1,3 @@
-from personality.loader import get_string
 from src.specialists.memory.engine import (
     get_user,
     save_user,
@@ -8,6 +7,7 @@ from src.specialists.memory.engine import (
 from src.specialists.memory.models import User
 from src.specialists.conversation.onboarding import NUM_STEPS
 from src.brain.router import route
+from src.brain.main_menu import handle_post_onboarding
 
 DEFAULT_LANGUAGE = "he"
 
@@ -27,6 +27,6 @@ def process_message(phone_number: str, message: str) -> str:
         return route(user, None, message, DEFAULT_LANGUAGE)
 
     if state.step >= NUM_STEPS:
-        return get_string("post_onboarding_reply", language=DEFAULT_LANGUAGE)
+        return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)

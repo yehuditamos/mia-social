@@ -77,11 +77,14 @@ def get_business(user_id: str) -> Optional[Business]:
 
 
 def upsert_business_field(user_id: str, field: str, value: str) -> None:
-    requests.post(
+    res = requests.post(
         f"{get_base_url()}/businesses",
         headers=get_headers(prefer="resolution=merge-duplicates,return=representation"),
+        params={"on_conflict": "user_id"},
         json={"user_id": user_id, field: value},
     )
+    print(f"UPSERT_BUSINESS [{field}] status:", res.status_code)
+    print(f"UPSERT_BUSINESS [{field}] body:", res.text)
 
 
 def get_conversation_state(user_id: str) -> Optional[ConversationState]:
