@@ -1,7 +1,9 @@
--- Remove duplicate rows, keep the one with the most data (latest id)
+-- Keep the most recently created row per user_id, delete the rest
 DELETE FROM businesses
 WHERE id NOT IN (
-  SELECT MAX(id) FROM businesses GROUP BY user_id
+  SELECT DISTINCT ON (user_id) id
+  FROM businesses
+  ORDER BY user_id, created_at DESC
 );
 
 -- Add unique constraint so UPSERT works correctly
