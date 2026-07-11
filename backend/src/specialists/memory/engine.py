@@ -120,3 +120,28 @@ def update_conversation_state(user_id: str, step: int) -> None:
         params={"user_id": f"eq.{user_id}"},
         json={"step": step},
     )
+
+
+def delete_conversation_state(user_id: str) -> None:
+    requests.delete(
+        f"{get_base_url()}/conversation_states",
+        headers=get_headers(prefer="return=minimal"),
+        params={"user_id": f"eq.{user_id}"},
+    )
+
+
+def delete_business(user_id: str) -> None:
+    requests.delete(
+        f"{get_base_url()}/businesses",
+        headers=get_headers(prefer="return=minimal"),
+        params={"user_id": f"eq.{user_id}"},
+    )
+
+
+def reset_user_profile(user: "User") -> None:
+    requests.patch(
+        f"{get_base_url()}/users",
+        headers=get_headers(prefer="return=minimal"),
+        params={"id": f"eq.{user.id}"},
+        json={"name": None, "accessibility": False},
+    )
