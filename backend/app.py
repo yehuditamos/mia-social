@@ -208,6 +208,22 @@ def auth_meta_callback():
         return f"<h2>Error</h2><pre>{repr(e)}</pre>", 500
 
 
+@app.route("/debug/subscribe-waba", methods=["POST"])
+def subscribe_waba():
+    import requests as req
+    app_id = os.getenv("META_APP_ID")
+    app_secret = os.getenv("META_APP_SECRET")
+    waba_id = "1382473903744883"
+    app_token = f"{app_id}|{app_secret}"
+    res = req.post(
+        f"https://graph.facebook.com/v21.0/{waba_id}/subscribed_apps",
+        headers={"Authorization": f"Bearer {app_token}"},
+    )
+    print("SUBSCRIBE WABA status:", res.status_code)
+    print("SUBSCRIBE WABA body:", res.text)
+    return jsonify({"status": res.status_code, "body": res.json()}), 200
+
+
 @app.route("/debug/test", methods=["GET"])
 def debug_test():
     try:
