@@ -75,12 +75,18 @@ def receive_webhook():
     message_type = messages[0].get("type")
     print("CHECKPOINT 5: from:", phone_number, "type:", message_type)
 
-    if message_type != "text":
-        print("CHECKPOINT 6 SKIP: non-text message type:", message_type)
+    if message_type == "text":
+        text = messages[0]["text"]["body"]
+    elif message_type == "image":
+        image_id = messages[0].get("image", {}).get("id", "")
+        text = f"__image__:{image_id}"
+    elif message_type == "audio":
+        text = "__audio__"
+    else:
+        print("CHECKPOINT 6 SKIP: unsupported message type:", message_type)
         return jsonify({"status": "received"}), 200
 
-    text = messages[0]["text"]["body"]
-    print("CHECKPOINT 6: text received:", text)
+    print("CHECKPOINT 6: type:", message_type, "text:", text[:80])
 
     try:
         reply = _process(phone_number, text)

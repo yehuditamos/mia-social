@@ -12,6 +12,7 @@ from src.specialists.conversation.onboarding import NUM_STEPS
 from src.brain.router import route
 from src.brain.main_menu import handle_post_onboarding
 from src.brain.post_flow import handle_post_flow
+from src.brain.story_flow import handle_story_flow
 from src.brain.dev_commands import is_dev_command, handle_dev_command
 from src.db.repositories.social_account import SocialAccountRepository
 from src.db.repositories.auth_session import AuthSessionRepository
@@ -60,6 +61,8 @@ def process_message(phone_number: str, message: str) -> str:
                 return get_string("connect_accounts_prompt", language=DEFAULT_LANGUAGE, oauth_url=oauth_url)
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
+            if state.flow == "story_creation":
+                return handle_story_flow(user, state, business, message, DEFAULT_LANGUAGE)
         return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)

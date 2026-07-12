@@ -8,6 +8,7 @@ from src.db.repositories.social_account import SocialAccountRepository
 _APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "✅", "אישור", "מאשרת", "מאשר"}
 _CANCEL = {"לא", "בטל", "ביטול", "בטלי", "❌", "no", "cancel"}
 _EDIT = {"ערכי", "שנה", "שני", "ערוך", "✏️", "edit", "שינוי"}
+_EXIT_KEYWORDS = {"סטורי", "ריל", "תפריט", "חזרי", "חזור", "מניו", "menu", "story", "reel", "ביטול", "בטלי"}
 
 
 def handle_post_flow(user: User, state: ConversationState, business: Business,
@@ -28,6 +29,11 @@ def handle_post_flow(user: User, state: ConversationState, business: Business,
 
 
 def _handle_topic(user: User, business: Business, topic: str, language: str) -> str:
+    words = set(topic.strip().lower().split())
+    if words & _EXIT_KEYWORDS:
+        clear_conversation_flow(user.id)
+        return get_string("main_menu", language=language, name=user.name or "")
+
     try:
         caption = generate_caption(
             brand_name=business.brand_name,
