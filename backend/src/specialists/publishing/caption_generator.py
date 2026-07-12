@@ -1,35 +1,13 @@
 import os
 import requests
 
-
 _API_URL = "https://api.anthropic.com/v1/messages"
 _MODEL = "claude-haiku-4-5-20251001"
 
+_BASE_SYSTEM = """Maya is an expert Israeli social media manager and copywriter.
 
-def generate_caption(brand_name: str, what_you_do: str, writing_style: str,
-                     writing_language: str, topic: str, edit_note: str = None) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
-
-    lang_instruction = "Write in Hebrew." if writing_language and "עברית" in writing_language else "Write in English."
-    if writing_language and "שתי" in writing_language:
-        lang_instruction = "Write in Hebrew."
-
-    style_map = {
-        "1": "warm and personal",
-        "חמים": "warm and personal",
-        "2": "professional",
-        "מקצועיים": "professional",
-        "3": "a mix of warm and professional",
-        "שילוב": "a mix of warm and professional",
-    }
-    style = next((v for k, v in style_map.items() if k in (writing_style or "")), "warm and professional")
-
-    system = f"""Maya is an expert Israeli social media manager and copywriter.
-
-Business: {brand_name or 'a business'}
-Description: {what_you_do or 'helps customers'}
+Business: {brand_name}
+Description: {what_you_do}
 Tone: {style}
 
 Your job is NOT to write long texts.
@@ -47,91 +25,124 @@ GENERAL RULES
 COPYWRITING STYLE
 
 Less is more.
-
 Prefer short posts over long posts.
-
 Remove every sentence that does not increase emotional impact.
-
 Every paragraph should contain one idea only.
-
 Avoid repeating the same message twice.
-
-Avoid dramatic or poetic writing unless specifically requested.
-
 Write exactly like a senior Israeli social media manager.
 
 TARGET AUDIENCE
 
 MamaFitness is a women-only fitness studio.
-
-Always write in feminine.
-
+Always write in feminine — את, שלך, בואי, תרגישי.
 Write as if you are speaking directly to one woman.
 
 POST STRUCTURE
 
-1. Strong hook.
+1. Strong hook that stops the scroll.
 2. Emotional connection.
 3. Clear value.
-4. Short call to action.
+4. Short, specific call to action.
 
 Keep the reading flow extremely easy on mobile.
-
-IMAGE AWARENESS
-
-If the user attached an image:
-
-First analyze the image.
-
-The caption must complement the image.
-
-Do NOT describe what is already obvious in the image.
-
-The image and the caption should feel like one complete story.
-
-If the image already communicates emotion,
-the caption should deepen the message instead of repeating it.
+Maximum 80-150 words.
 
 SOCIAL MEDIA PERFORMANCE
 
-When writing captions, optimize for social media performance, not for literary writing.
-
+Optimize for social media performance, not literary writing.
 Assume the reader will spend only 3 seconds deciding whether to continue reading.
-
 Every sentence must earn its place.
-
-If a sentence can be removed without hurting the message, remove it.
-
 Prefer clarity over beauty.
-
 Prefer emotion over explanation.
-
 Prefer authenticity over sophistication.
 
 QUALITY CHECK
 
-Before sending any Hebrew response verify:
-
+Before sending verify:
 ✓ Native Israeli Hebrew
 ✓ Correct grammar
 ✓ Correct feminine language
-✓ Natural sentence structure
 ✓ No translated wording
 ✓ No unnecessary sentences
-✓ No repetition
 ✓ Easy to read on a phone
-✓ Sounds written by an experienced Israeli copywriter
-
-If any answer is NO, rewrite the post before sending it.
 
 Never show the first draft. Only return the final polished version.
-
 Return ONLY the caption text. No explanations, no headers, no meta-text."""
+
+_VISUAL_FIRST_ADDITION = """
+VISUAL FIRST
+
+The visual content is the primary asset. The caption tells only the 20% the image doesn't.
+
+Image analysis: {image_analysis}
+
+Post goal: {goal}
+
+Rules:
+- Do NOT describe what is already visible in the image.
+- The caption must ADD something the image cannot say alone.
+- If the image communicates emotion, the caption should deepen it, not repeat it.
+- Choose ONE goal and optimize the entire caption for it.
+- The CTA must naturally follow the emotional tone of the image.
+
+The image and caption should feel like one complete story."""
+
+
+def _resolve_style(writing_style: str) -> str:
+    style_map = {
+        "1": "warm and personal",
+        "חמים": "warm and personal",
+        "2": "professional",
+        "מקצועיים": "professional",
+        "3": "a mix of warm and professional",
+        "שילוב": "a mix of warm and professional",
+    }
+    return next((v for k, v in style_map.items() if k in (writing_style or "")), "warm and professional")
+
+
+def generate_caption(brand_name: str, what_you_do: str, writing_style: str,
+                     writing_language: str, topic: str, edit_note: str = None) -> str:
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+
+    system = _BASE_SYSTEM.format(
+        brand_name=brand_name or "a business",
+        what_you_do=what_you_do or "helps customers",
+        style=_resolve_style(writing_style),
+    )
 
     user_msg = f"Write a caption about: {topic}"
     if edit_note:
         user_msg += f"\n\nPrevious caption needs this change: {edit_note}"
 
+    return _call_api(api_key, system, user_msg)
+
+
+def generate_caption_for_image(brand_name: str, what_you_do: str, writing_style: str,
+                               writing_language: str, image_analysis: str,
+                               goal: str, edit_note: str = None) -> str:
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+
+    system = _BASE_SYSTEM.format(
+        brand_name=brand_name or "a business",
+        what_you_do=what_you_do or "helps customers",
+        style=_resolve_style(writing_style),
+    ) + _VISUAL_FIRST_ADDITION.format(
+        image_analysis=image_analysis or "No image analysis available.",
+        goal=goal,
+    )
+
+    user_msg = "Write a caption for this image."
+    if edit_note:
+        user_msg += f"\n\nPrevious caption needs this change: {edit_note}"
+
+    return _call_api(api_key, system, user_msg)
+
+
+def _call_api(api_key: str, system: str, user_msg: str) -> str:
     payload = {
         "model": _MODEL,
         "max_tokens": 512,

@@ -13,6 +13,7 @@ from src.brain.router import route
 from src.brain.main_menu import handle_post_onboarding
 from src.brain.post_flow import handle_post_flow
 from src.brain.story_flow import handle_story_flow
+from src.brain.image_flow import handle_image_flow, start_image_flow
 from src.brain.dev_commands import is_dev_command, handle_dev_command
 from src.db.repositories.social_account import SocialAccountRepository
 from src.db.repositories.auth_session import AuthSessionRepository
@@ -43,6 +44,9 @@ def process_message(phone_number: str, message: str) -> str:
     if is_dev_command(message):
         return handle_dev_command(user, message)
 
+    if message == "__audio__":
+        return get_string("audio_not_supported", language=DEFAULT_LANGUAGE)
+
     state = get_conversation_state(user.id)
 
     if state is None:
@@ -59,10 +63,17 @@ def process_message(phone_number: str, message: str) -> str:
                 oauth_url = _make_connect_url(user, business)
                 print(f"POST_ONBOARDING: sending connect URL={oauth_url}")
                 return get_string("connect_accounts_prompt", language=DEFAULT_LANGUAGE, oauth_url=oauth_url)
+
+            if message.startswith("__image__:"):
+                image_id = message.split(":", 1)[1]
+                return start_image_flow(user, business, image_id, DEFAULT_LANGUAGE)
+
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "story_creation":
                 return handle_story_flow(user, state, business, message, DEFAULT_LANGUAGE)
+            if state.flow == "image_post":
+                return handle_image_flow(user, state, business, message, DEFAULT_LANGUAGE)
         return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)
