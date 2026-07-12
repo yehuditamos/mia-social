@@ -34,6 +34,25 @@ class AuthSessionRepository:
         print("AUTH_SESSION CREATE body:", res.text)
         return state
 
+    def get_valid_pending(self, business_id: str, channel_user_id: str) -> str:
+        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        res = requests.get(
+            f"{get_base_url()}/auth_sessions",
+            headers=get_headers(),
+            params={
+                "business_id": f"eq.{business_id}",
+                "channel_user_id": f"eq.{channel_user_id}",
+                "status": "eq.pending",
+                "expires_at": f"gt.{now}",
+                "limit": "1",
+                "order": "created_at.desc",
+            },
+        )
+        data = res.json()
+        if isinstance(data, list) and data:
+            return data[0]["state"]
+        return None
+
     def validate_exists(self, state: str) -> None:
         res = requests.get(
             f"{get_base_url()}/auth_sessions",

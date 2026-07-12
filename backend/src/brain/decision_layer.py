@@ -23,13 +23,16 @@ _BASE_URL = os.getenv("BASE_URL", "https://mia-social-backend.onrender.com")
 
 
 def _make_connect_url(user, business) -> str:
-    state = AuthSessionRepository().create(
-        business_id=business.id,
-        channel="whatsapp",
-        channel_user_id=user.phone_number,
-        initiated_by=user.id,
-        purpose="meta_connect",
-    )
+    repo = AuthSessionRepository()
+    state = repo.get_valid_pending(business.id, user.phone_number)
+    if not state:
+        state = repo.create(
+            business_id=business.id,
+            channel="whatsapp",
+            channel_user_id=user.phone_number,
+            initiated_by=user.id,
+            purpose="meta_connect",
+        )
     return f"{_BASE_URL}/connect/{state}"
 
 
