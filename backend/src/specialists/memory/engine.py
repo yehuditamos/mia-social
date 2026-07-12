@@ -98,7 +98,13 @@ def get_conversation_state(user_id: str) -> Optional[ConversationState]:
         if not data:
             return None
         d = data[0]
-        return ConversationState(user_id=d["user_id"], step=d["step"], id=d["id"])
+        return ConversationState(
+            user_id=d["user_id"],
+            step=d["step"],
+            id=d["id"],
+            flow=d.get("flow"),
+            flow_data=d.get("flow_data") or {},
+        )
     except Exception:
         return None
 
@@ -119,6 +125,24 @@ def update_conversation_state(user_id: str, step: int) -> None:
         headers=get_headers(),
         params={"user_id": f"eq.{user_id}"},
         json={"step": step},
+    )
+
+
+def update_conversation_flow(user_id: str, flow: str, flow_data: dict) -> None:
+    requests.patch(
+        f"{get_base_url()}/conversation_states",
+        headers=get_headers(),
+        params={"user_id": f"eq.{user_id}"},
+        json={"flow": flow, "flow_data": flow_data},
+    )
+
+
+def clear_conversation_flow(user_id: str) -> None:
+    requests.patch(
+        f"{get_base_url()}/conversation_states",
+        headers=get_headers(),
+        params={"user_id": f"eq.{user_id}"},
+        json={"flow": None, "flow_data": {}},
     )
 
 

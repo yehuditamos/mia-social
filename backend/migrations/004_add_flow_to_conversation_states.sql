@@ -1,0 +1,3 @@
+ALTER TABLE conversation_states
+  ADD COLUMN IF NOT EXISTS flow TEXT,
+  ADD COLUMN IF NOT EXISTS flow_data JSONB DEFAULT '{}';

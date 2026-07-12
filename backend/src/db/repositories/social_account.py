@@ -5,6 +5,18 @@ from src.db.connection import get_base_url, get_headers
 
 class SocialAccountRepository:
 
+    def get_by_business(self, business_id: str, platform: str = None) -> list:
+        params = {"business_id": f"eq.{business_id}", "status": "eq.active"}
+        if platform:
+            params["platform"] = f"eq.{platform}"
+        res = requests.get(
+            f"{get_base_url()}/social_accounts",
+            headers=get_headers(),
+            params=params,
+        )
+        data = res.json()
+        return data if isinstance(data, list) else []
+
     def has_active_accounts(self, business_id: str) -> bool:
         res = requests.get(
             f"{get_base_url()}/social_accounts",

@@ -1,5 +1,6 @@
 from personality.loader import get_string
 from src.specialists.memory.models import User
+from src.specialists.memory.engine import update_conversation_flow
 
 _POST_KEYWORDS = {"פוסט", "post", "1", "1️⃣"}
 _STORY_KEYWORDS = {"סטורי", "story", "סטוריז", "2", "2️⃣"}
@@ -27,7 +28,8 @@ def handle_post_onboarding(user: User, message: str, language: str = "he") -> st
     intent = _detect_intent(message)
 
     if intent == "create_post":
-        return get_string("menu_create_post", language=language)
+        update_conversation_flow(user.id, "post_creation", {"step": "awaiting_topic"})
+        return get_string("post_ask_topic", language=language)
     if intent == "create_story":
         return get_string("menu_create_story", language=language)
     if intent == "create_reel":

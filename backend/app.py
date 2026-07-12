@@ -209,7 +209,10 @@ def auth_meta_callback():
                     "page_name": page["name"],
                     "access_token": access_token,
                     "token_expires_at": token_expires_at,
-                    "metadata": page,
+                    "metadata": {
+                        **page,
+                        "page_access_token": page.get("page_access_token"),
+                    },
                 },
             )
 

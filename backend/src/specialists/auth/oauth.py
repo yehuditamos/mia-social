@@ -65,7 +65,11 @@ def get_connected_assets(user_token: str) -> dict:
     assets = {"pages": [], "instagram_accounts": []}
 
     for page in pages_data.get("data", []):
-        assets["pages"].append({"id": page["id"], "name": page["name"]})
+        assets["pages"].append({
+            "id": page["id"],
+            "name": page["name"],
+            "page_access_token": page.get("access_token"),
+        })
 
         ig_res = requests.get(
             f"{_GRAPH}/{page['id']}",

@@ -26,3 +26,5 @@ class ConversationState:
     user_id: str
     step: int = 0
     id: Optional[str] = None
+    flow: Optional[str] = None
+    flow_data: Optional[dict] = None
