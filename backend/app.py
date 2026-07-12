@@ -90,8 +90,11 @@ def receive_webhook():
         return jsonify({"status": "received"}), 200
 
     try:
-        _send(phone_number, reply)
-        print("CHECKPOINT 8: send_message called")
+        parts = reply.split("\n||||\n")
+        for part in parts:
+            if part.strip():
+                _send(phone_number, part.strip())
+        print("CHECKPOINT 8: send_message called, parts:", len(parts))
     except Exception as e:
         print("CHECKPOINT 8 FAILED: _send error:", repr(e))
 
