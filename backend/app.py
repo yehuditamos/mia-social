@@ -238,6 +238,49 @@ def auth_meta_callback():
         return f"<h2>Error</h2><pre>{repr(e)}</pre>", 500
 
 
+@app.route("/debug/token-permissions")
+def debug_token_permissions():
+    import requests as req
+    phone = request.args.get("phone")
+    if not phone:
+        return "<pre>Missing ?phone= param</pre>", 400
+
+    from src.specialists.memory.engine import get_user, get_business
+    from src.db.repositories.social_account import SocialAccountRepository
+
+    user = get_user(phone)
+    if not user:
+        return f"<pre>User not found: {phone}</pre>", 404
+    business = get_business(user.id)
+    if not business:
+        return "<pre>No business found</pre>", 404
+
+    accounts = SocialAccountRepository().get_by_business(business.id, platform="facebook")
+    if not accounts:
+        return "<pre>No Facebook accounts stored</pre>", 404
+
+    account = accounts[0]
+    user_token = account.get("access_token")
+    page_token = (account.get("metadata") or {}).get("page_access_token")
+    page_id = account.get("page_id")
+
+    app_token = f"{os.getenv('META_APP_ID')}|{os.getenv('META_APP_SECRET')}"
+
+    r1 = req.get("https://graph.facebook.com/debug_token",
+                 params={"input_token": user_token, "access_token": app_token})
+    r2 = req.get("https://graph.facebook.com/debug_token",
+                 params={"input_token": page_token, "access_token": app_token}) if page_token else None
+
+    import json
+    result = {
+        "page_id": page_id,
+        "has_page_token": bool(page_token),
+        "user_token_info": r1.json(),
+        "page_token_info": r2.json() if r2 else "no page token stored",
+    }
+    return f"<pre>{json.dumps(result, indent=2, ensure_ascii=False)}</pre>", 200
+
+
 @app.route("/debug/subscribe-waba", methods=["POST"])
 def subscribe_waba():
     import requests as req
