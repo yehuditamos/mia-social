@@ -139,7 +139,11 @@ def connect_redirect(state):
     try:
         AuthSessionRepository().validate_exists(state)
     except ValueError as e:
-        return f"<h2>Invalid or expired link</h2><p>{e}</p>", 400
+        return (
+            "<h2>הקישור פג תוקף</h2>"
+            "<p>קישורי חיבור תקפים ל-60 דקות.</p>"
+            "<p>חזרי לוואטסאפ ושלחי כל הודעה — מיה תשלח לך קישור חדש.</p>"
+        ), 400
 
     url = generate_oauth_url(state)
     return redirect(url)
