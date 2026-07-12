@@ -10,7 +10,7 @@ from src.specialists.memory.engine import (
 from src.db.repositories.social_account import SocialAccountRepository
 from src.specialists.conversation.onboarding import STEPS, NUM_STEPS
 
-_DEV_COMMANDS = {"/reset", "/debug", "/state", "/business"}
+_DEV_COMMANDS = {"/reset", "/debug", "/state", "/business", "/reconnect_facebook"}
 
 
 def is_dev_command(message: str) -> bool:
@@ -33,6 +33,8 @@ def handle_dev_command(user: User, message: str) -> str:
         return _cmd_state(user)
     if cmd == "/business":
         return _cmd_business(user)
+    if cmd == "/reconnect_facebook":
+        return _cmd_reconnect_facebook(user)
 
     return "[dev] unknown command"
 
@@ -69,6 +71,28 @@ def _cmd_business(user: User) -> str:
         f"  writing_style: {business.writing_style}\n"
         f"  communication_preferences: {business.communication_preferences}"
     )
+
+
+def _cmd_reconnect_facebook(user: User) -> str:
+    import os
+    from src.db.repositories.auth_session import AuthSessionRepository
+
+    business = get_business(user.id)
+    if not business:
+        return "[dev] ❌ אין פרופיל עסק. עברי אונבורדינג קודם."
+
+    SocialAccountRepository().delete_by_platform(business.id, "facebook")
+
+    BASE_URL = os.getenv("BASE_URL", "https://mia-social-backend.onrender.com")
+    state = AuthSessionRepository().create(
+        business_id=business.id,
+        channel="whatsapp",
+        channel_user_id=user.phone_number,
+        initiated_by=user.id,
+        purpose="meta_connect",
+    )
+    url = f"{BASE_URL}/connect/{state}"
+    return f"[dev] חשבונות פייסבוק נמחקו. חברי מחדש:\n\n{url}"
 
 
 def _cmd_debug(user: User) -> str:

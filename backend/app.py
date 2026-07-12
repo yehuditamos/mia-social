@@ -231,11 +231,67 @@ def auth_meta_callback():
         print("Instagram accounts:", assets["instagram_accounts"])
         print("========================")
 
-        return "<h2>Connected successfully!</h2><p>Check Render logs for the connected assets.</p>", 200
+        # Verify permissions and send WhatsApp feedback
+        phone = session.get("channel_user_id")
+        whatsapp_msg = _build_connection_feedback(access_token, assets)
+        if phone:
+            try:
+                from src.whatsapp.client import send_message
+                send_message(phone, whatsapp_msg)
+            except Exception as we:
+                print("WHATSAPP FEEDBACK ERROR:", repr(we))
+
+        return "<h2>✅ Connected!</h2><p>חזרי לוואטסאפ — מיה שלחה לך אישור.</p>", 200
 
     except Exception as e:
         print("OAUTH CALLBACK ERROR:", repr(e))
         return f"<h2>Error</h2><pre>{repr(e)}</pre>", 500
+
+
+def _build_connection_feedback(user_token: str, assets: dict) -> str:
+    import requests as req
+    app_token = f"{os.getenv('META_APP_ID')}|{os.getenv('META_APP_SECRET')}"
+
+    try:
+        debug = req.get(
+            "https://graph.facebook.com/debug_token",
+            params={"input_token": user_token, "access_token": app_token},
+            timeout=10,
+        ).json()
+        granted = set(debug.get("data", {}).get("scopes", []))
+    except Exception:
+        granted = set()
+
+    required_for_facebook = {"pages_manage_posts", "pages_read_engagement"}
+    missing_facebook = required_for_facebook - granted
+
+    has_instagram = bool(assets.get("instagram_accounts"))
+    has_ig_publish = "instagram_content_publish" in granted
+
+    pages = assets.get("pages", [])
+    ig_accounts = assets.get("instagram_accounts", [])
+
+    lines = ["✅ התחברת בהצלחה!\n"]
+
+    if pages:
+        lines.append(f"📘 פייסבוק: {', '.join(p['name'] for p in pages)}")
+        if missing_facebook:
+            lines.append(f"   ⚠️ חסרה הרשאה לפרסום: {', '.join(missing_facebook)}")
+        else:
+            lines.append("   ✅ הרשאות פרסום תקינות")
+
+    if ig_accounts:
+        ig_names = [ig.get("username") or ig.get("name", "") for ig in ig_accounts]
+        lines.append(f"📸 אינסטגרם: {', '.join(ig_names)}")
+        if has_ig_publish:
+            lines.append("   ✅ הרשאת פרסום תקינה")
+        else:
+            lines.append("   ⚠️ חסרה הרשאת instagram_content_publish")
+
+    if not pages and not ig_accounts:
+        lines.append("⚠️ לא נמצאו דפים או חשבונות אינסטגרם מחוברים.")
+
+    return "\n".join(lines)
 
 
 @app.route("/debug/token-permissions")
