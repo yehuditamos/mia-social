@@ -2,6 +2,7 @@ from personality.loader import get_string
 from src.specialists.memory.models import User, Business, ConversationState
 from src.specialists.memory.engine import update_conversation_flow, clear_conversation_flow, get_business
 from src.specialists.publishing.caption_generator import generate_caption_for_image
+from src.specialists.publishing.instagram import publish_image_to_instagram
 from src.specialists.publishing.facebook import publish_text_post
 from src.db.repositories.social_account import SocialAccountRepository
 
@@ -22,18 +23,22 @@ _EDIT = {"ערכי", "שנה", "שני", "ערוך", "✏️", "edit", "שינו
 def start_image_flow(user: User, business: Business, image_id: str, language: str) -> str:
     from src.whatsapp.media import download_media
     from src.specialists.publishing.vision import analyze_image
+    from src.db.storage import upload_image
 
+    image_url = None
     analysis = None
     try:
         image_b64, mime_type = download_media(image_id)
+        image_url = upload_image(image_b64, mime_type, image_id)
         analysis = analyze_image(image_b64, mime_type)
-        print("IMAGE ANALYSIS:", analysis[:100])
+        print("IMAGE ANALYSIS:", analysis[:100] if analysis else None)
     except Exception as e:
-        print("IMAGE ANALYSIS ERROR:", repr(e))
+        print("IMAGE SETUP ERROR:", repr(e))
 
     update_conversation_flow(user.id, "image_post", {
         "step": "awaiting_goal",
         "image_analysis": analysis,
+        "image_url": image_url,
     })
     return get_string("image_received_ask_goal", language=language)
 
@@ -140,30 +145,42 @@ def _handle_edit(user: User, state: ConversationState, business: Business,
 
 def _publish(user: User, flow_data: dict, language: str) -> str:
     caption = flow_data.get("caption", "")
+    image_url = flow_data.get("image_url")
+
     business = get_business(user.id)
     if not business:
         clear_conversation_flow(user.id)
         return get_string("post_no_accounts", language=language)
 
-    accounts = SocialAccountRepository().get_by_business(business.id, platform="facebook")
-    if not accounts:
-        clear_conversation_flow(user.id)
-        return get_string("post_no_accounts", language=language)
+    all_accounts = SocialAccountRepository().get_by_business(business.id)
 
-    account = accounts[0]
-    page_id = account.get("page_id")
-    page_access_token = (account.get("metadata") or {}).get("page_access_token")
+    # Instagram first (image required)
+    if image_url:
+        ig_accounts = [a for a in all_accounts if a.get("platform") == "instagram"]
+        if ig_accounts:
+            ig = ig_accounts[0]
+            ig_user_id = ig.get("platform_account_id")
+            access_token = ig.get("access_token")
+            try:
+                post_url = publish_image_to_instagram(ig_user_id, image_url, caption, access_token)
+                clear_conversation_flow(user.id)
+                return get_string("post_published", language=language, post_url=post_url)
+            except Exception as e:
+                print("INSTAGRAM PUBLISH ERROR:", repr(e))
 
-    if not page_id or not page_access_token:
-        clear_conversation_flow(user.id)
-        return get_string("post_no_accounts", language=language)
-
-    try:
-        post_url = publish_text_post(page_id, page_access_token, caption)
-    except Exception as e:
-        print("PUBLISH ERROR:", repr(e))
-        clear_conversation_flow(user.id)
-        return get_string("post_publish_error", language=language)
+    # Fallback: Facebook (text)
+    fb_accounts = [a for a in all_accounts if a.get("platform") == "facebook"]
+    if fb_accounts:
+        fb = fb_accounts[0]
+        page_id = fb.get("page_id")
+        page_token = (fb.get("metadata") or {}).get("page_access_token")
+        if page_id and page_token:
+            try:
+                post_url = publish_text_post(page_id, page_token, caption)
+                clear_conversation_flow(user.id)
+                return get_string("post_published", language=language, post_url=post_url)
+            except Exception as e:
+                print("FACEBOOK PUBLISH ERROR:", repr(e))
 
     clear_conversation_flow(user.id)
-    return get_string("post_published", language=language, post_url=post_url)
+    return get_string("post_publish_error", language=language)
