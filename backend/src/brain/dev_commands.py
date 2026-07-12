@@ -7,6 +7,7 @@ from src.specialists.memory.engine import (
     delete_business,
     reset_user_profile,
 )
+from src.db.repositories.social_account import SocialAccountRepository
 from src.specialists.conversation.onboarding import STEPS, NUM_STEPS
 
 _DEV_COMMANDS = {"/reset", "/debug", "/state", "/business"}
@@ -37,6 +38,9 @@ def handle_dev_command(user: User, message: str) -> str:
 
 
 def _cmd_reset(user: User) -> str:
+    business = get_business(user.id)
+    if business:
+        SocialAccountRepository().delete_by_business(business.id)
     delete_conversation_state(user.id)
     delete_business(user.id)
     reset_user_profile(user)

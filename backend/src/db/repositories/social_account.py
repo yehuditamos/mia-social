@@ -14,6 +14,14 @@ class SocialAccountRepository:
         data = res.json()
         return isinstance(data, list) and len(data) > 0
 
+    def delete_by_business(self, business_id: str) -> None:
+        res = requests.delete(
+            f"{get_base_url()}/social_accounts",
+            headers=get_headers(prefer="return=minimal"),
+            params={"business_id": f"eq.{business_id}"},
+        )
+        print(f"SOCIAL_ACCOUNT DELETE business_id={business_id} status:", res.status_code)
+
     def upsert(self, business_id: str, platform: str, platform_account_id: str, record: dict) -> None:
         payload = {
             "business_id": business_id,

@@ -49,9 +49,14 @@ def process_message(phone_number: str, message: str) -> str:
 
     if state.step >= NUM_STEPS:
         business = get_business(user.id)
-        if business and not SocialAccountRepository().has_active_accounts(business.id):
-            oauth_url = _make_connect_url(user, business)
-            return get_string("connect_accounts_prompt", language=DEFAULT_LANGUAGE, oauth_url=oauth_url)
+        print(f"POST_ONBOARDING: business={business}")
+        if business:
+            has_accounts = SocialAccountRepository().has_active_accounts(business.id)
+            print(f"POST_ONBOARDING: has_active_accounts={has_accounts}")
+            if not has_accounts:
+                oauth_url = _make_connect_url(user, business)
+                print(f"POST_ONBOARDING: sending connect URL={oauth_url}")
+                return get_string("connect_accounts_prompt", language=DEFAULT_LANGUAGE, oauth_url=oauth_url)
         return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)

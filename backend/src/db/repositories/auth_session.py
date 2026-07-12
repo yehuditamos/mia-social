@@ -3,7 +3,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from src.db.connection import get_base_url, get_headers
 
-SESSION_TTL_MINUTES = 10
+SESSION_TTL_MINUTES = 60
 
 
 class AuthSessionRepository:
