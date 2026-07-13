@@ -73,7 +73,13 @@ def receive_webhook():
 
     phone_number = messages[0]["from"]
     message_type = messages[0].get("type")
-    print("CHECKPOINT 5: from:", phone_number, "type:", message_type)
+    wamid = messages[0].get("id", "")
+    print("CHECKPOINT 5: from:", phone_number, "type:", message_type, "id:", wamid)
+
+    from src.db.repositories.webhook_dedup import is_duplicate_and_mark
+    if is_duplicate_and_mark(wamid):
+        print(f"DEDUP: skipping duplicate wamid={wamid}")
+        return jsonify({"status": "received"}), 200
 
     if message_type == "text":
         text = messages[0]["text"]["body"]
