@@ -1,18 +1,35 @@
 import io
+import os
 import uuid
 import base64
+import requests
 from PIL import Image, ImageDraw, ImageFont
-from bidi.algorithm import get_display
 
 _W, _H = 1080, 1920
-_MAX_W = int(_W * 0.82)
-_FONT_SIZES = [120, 100, 80, 64, 50]
-_MAX_LINES = 7
+_FONT_SIZES = [110, 90, 72, 58, 46]
+_MAX_LINES = 4
+_MARGIN = int(_W * 0.10)
+_MAX_W = _W - 2 * _MARGIN
+
 _FONT_PATHS = [
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
 ]
+
+_FORMAT_SYSTEM = """\
+אתה מעצב גרפי ישראלי עם 15 שנות ניסיון בסושיאל.
+המשימה: קבל טקסט בעברית וחלק אותו לשורות לסטורי אינסטגרם.
+
+חוקים מחייבים:
+1. חלק לפי משמעות בלבד — לא לפי מספר תווים
+2. שמור שעות / תאריכים / מספרים עם המילים שלהם (כתוב ב-8:30 ולא ב8:30)
+3. מקסימום 4 שורות; עדיף 2–3
+4. שורות מאוזנות ויזואלית — אורך דומה
+5. אל תשאיר מילה בודדת בשורה בפני עצמה אלא אם אין ברירה
+6. עברית טבעית, כתיב תקין, פיסוק נכון
+7. סימן שאלה (?) בסוף שאלה, נקודה (.) בסוף משפט
+8. אל תוסיף הסברים — רק שורות הטקסט עצמן, שורה אחת לכל שורה"""
 
 
 def create_text_story_image(text: str, bg_color: str = "black") -> bytes:
@@ -20,33 +37,21 @@ def create_text_story_image(text: str, bg_color: str = "black") -> bytes:
     bg = (0, 0, 0) if is_dark else (255, 255, 255)
     fg = (255, 255, 255) if is_dark else (0, 0, 0)
 
+    lines = _format_with_claude(text)
+    print(f"[TEXT STORY] lines={lines}")
+
     img = Image.new("RGB", (_W, _H), color=bg)
     draw = ImageDraw.Draw(img)
 
-    font, lines = _pick_font_and_lines(draw, text)
-
-    try:
-        font_size = font.size
-    except Exception:
-        font_size = 80
-    line_h = int(font_size * 1.5)
-
-    print(f"[TEXT STORY] font_size={font_size} num_lines={len(lines)} line_h={line_h}")
-    for i, l in enumerate(lines):
-        print(f"[TEXT STORY] line[{i}]: {l[:40]!r}")
-
-    # python-bidi with base_dir='R' builds lines with the last logical words first;
-    # reverse so that the first words of the sentence appear at the top of the image
-    lines = list(reversed(lines))
+    font = _pick_font(draw, lines)
+    line_h = _line_height(font)
 
     total_h = len(lines) * line_h
     y = (_H - total_h) // 2
 
+    cx = _W // 2
     for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        line_w = bbox[2] - bbox[0]
-        x = (_W - line_w) // 2
-        draw.text((x, y), line, fill=fg, font=font)
+        _draw_rtl(draw, line, font, fg, cx, y)
         y += line_h
 
     buf = io.BytesIO()
@@ -63,6 +68,54 @@ def generate_and_upload(text: str, bg_color: str) -> str:
     return upload_image(img_b64, "image/png", filename)
 
 
+def _draw_rtl(draw, line: str, font, fg, cx: int, y: int):
+    """Draw one Hebrew line centered on cx, using RTL direction if libraqm available."""
+    try:
+        # Requires libraqm — proper RTL shaping
+        draw.text((cx, y), line, font=font, fill=fg, direction="rtl", anchor="ma")
+        return
+    except (ValueError, TypeError, AttributeError, Exception):
+        pass
+
+    # Fallback: python-bidi visual reorder + PIL LTR draw
+    try:
+        from bidi.algorithm import get_display
+        visual = get_display(line, base_dir="R")
+    except Exception:
+        visual = line[::-1]  # last-resort: simple character reversal
+
+    bbox = draw.textbbox((0, 0), visual, font=font)
+    x = ((_W - (bbox[2] - bbox[0])) // 2) - bbox[0]
+    draw.text((x, y), visual, font=font, fill=fg)
+
+
+def _line_height(font) -> int:
+    try:
+        a, d = font.getmetrics()
+        return int((a + abs(d)) * 1.45)
+    except Exception:
+        try:
+            return int(font.size * 1.5)
+        except Exception:
+            return 70
+
+
+def _pick_font(draw, lines: list):
+    for size in _FONT_SIZES:
+        font = _load_font(size)
+        if all(_line_fits(draw, ln, font) for ln in lines):
+            return font
+    return _load_font(_FONT_SIZES[-1])
+
+
+def _line_fits(draw, line: str, font) -> bool:
+    try:
+        bbox = draw.textbbox((0, 0), line, font=font, direction="rtl")
+    except Exception:
+        bbox = draw.textbbox((0, 0), line, font=font)
+    return (bbox[2] - bbox[0]) <= _MAX_W
+
+
 def _load_font(size: int):
     for path in _FONT_PATHS:
         try:
@@ -72,40 +125,39 @@ def _load_font(size: int):
     return ImageFont.load_default()
 
 
-def _build_lines(draw, text: str, font, max_width: int) -> list:
+def _format_with_claude(text: str) -> list:
+    """Ask Claude Haiku to split the text into semantic Hebrew lines."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _simple_split(text)
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 150,
+                "system": _FORMAT_SYSTEM,
+                "messages": [{"role": "user", "content": text}],
+            },
+            timeout=8,
+        )
+        raw = resp.json()["content"][0]["text"].strip()
+        lines = [l.strip() for l in raw.split("\n") if l.strip()]
+        return lines[:_MAX_LINES] if lines else _simple_split(text)
+    except Exception as e:
+        print(f"[TEXT STORY] Claude format error: {repr(e)}")
+        return _simple_split(text)
+
+
+def _simple_split(text: str) -> list:
     words = text.split()
-    if not words:
-        return [get_display(text, base_dir="R")]
-
-    lines = []
-    current = []
-
-    for word in words:
-        # Measure width using RAW text (logical order) — same characters, correct width
-        # Avoids bbox quirks from get_display reordering with mixed RTL+LTR (numbers)
-        test_raw = " ".join(current + [word])
-        bbox = draw.textbbox((0, 0), test_raw, font=font)
-        w = bbox[2] - bbox[0]
-
-        if w <= max_width or not current:
-            current.append(word)
-        else:
-            # base_dir='R' ensures correct RTL ordering regardless of mixed content
-            lines.append(get_display(" ".join(current), base_dir="R"))
-            current = [word]
-
-    if current:
-        lines.append(get_display(" ".join(current), base_dir="R"))
-
-    return lines if lines else [get_display(text, base_dir="R")]
-
-
-def _pick_font_and_lines(draw, text: str):
-    for size in _FONT_SIZES:
-        font = _load_font(size)
-        lines = _build_lines(draw, text, font, _MAX_W)
-        if len(lines) <= _MAX_LINES:
-            return font, lines
-
-    font = _load_font(_FONT_SIZES[-1])
-    return font, _build_lines(draw, text, font, _MAX_W)
+    if len(words) <= 5:
+        return [text]
+    mid = len(words) // 2
+    return [" ".join(words[:mid]), " ".join(words[mid:])]

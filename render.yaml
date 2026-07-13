@@ -3,7 +3,7 @@ services:
     name: mia-social-backend
     runtime: python
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    buildCommand: apt-get install -y libraqm-dev fonts-freefont-ttf 2>/dev/null || true; pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
       - key: WHATSAPP_VERIFY_TOKEN
