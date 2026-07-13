@@ -146,7 +146,8 @@ def process_message(phone_number: str, message: str) -> str:
                 step = (state.flow_data or {}).get("step", "")
                 if step == "awaiting_image" and not message.startswith("__") and len(message.strip()) > 2:
                     from src.specialists.memory.engine import update_conversation_flow as _ucf
-                    _ucf(user.id, "text_story_creation", {"step": "awaiting_color", "text": message.strip()})
+                    story_text = _strip_story_commands(message.strip())
+                    _ucf(user.id, "text_story_creation", {"step": "awaiting_color", "text": story_text})
                     return f"לא קיבלתי תמונה — אבל יש לי את הטקסט 😊\n\nאיזה רקע לסטורי?\n\n⬛ שחור\n⬜ לבן"
                 return handle_story_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "reel_creation":
@@ -230,6 +231,19 @@ def _handle_accessibility_confirm(user, business, message: str, language: str) -
     return "בסדר 💜 שלחי תמונה אחרת."
 
 
+_STORY_CMD_WORDS = {"תכתבי", "כתבי", "תרשמי", "רשמי", "תכתוב", "כתוב", "תציגי", "הציגי"}
+
+
+def _strip_story_commands(text: str) -> str:
+    """Strip command verbs (תכתבי, כתבי …) and the particle 'את' from the start."""
+    words = text.strip().split()
+    while words and words[0] in _STORY_CMD_WORDS:
+        words.pop(0)
+    if words and words[0] == "את":
+        words.pop(0)
+    return " ".join(words).strip() or text.strip()
+
+
 def _handle_text_story_flow(user, business, state, message: str, language: str) -> str:
     from src.specialists.memory.engine import update_conversation_flow, clear_conversation_flow
 
@@ -238,7 +252,7 @@ def _handle_text_story_flow(user, business, state, message: str, language: str) 
     text = data.get("text", "")
 
     if step == "awaiting_text":
-        t = message.strip()
+        t = _strip_story_commands(message.strip())
         update_conversation_flow(user.id, "text_story_creation", {"step": "awaiting_color", "text": t})
         return f"שמרתי: \"{t}\"\n\nאיזה רקע?\n\n⬛ שחור\n⬜ לבן"
 

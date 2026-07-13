@@ -25,17 +25,23 @@ def create_text_story_image(text: str, bg_color: str = "black") -> bytes:
 
     font, lines = _pick_font_and_lines(draw, text)
 
+    # Use actual font metrics for reliable line height
     try:
-        line_h = int(font.size * 1.45)
+        ascent, descent = font.getmetrics()
+        line_h = int((ascent + descent) * 1.35)
     except Exception:
-        line_h = 40
+        try:
+            line_h = int(font.size * 1.45)
+        except Exception:
+            line_h = 50
 
-    total_h = max(1, len(lines)) * line_h
+    total_h = len(lines) * line_h
     y = (_H - total_h) // 2
 
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=font)
-        x = (_W - max(0, bbox[2] - bbox[0])) // 2
+        line_w = bbox[2] - bbox[0]
+        x = (_W - line_w) // 2
         draw.text((x, y), line, fill=fg, font=font)
         y += line_h
 
@@ -64,23 +70,30 @@ def _load_font(size: int):
 
 def _build_lines(draw, text: str, font, max_width: int) -> list:
     words = text.split()
+    if not words:
+        return [get_display(text, base_dir="R")]
+
     lines = []
     current = []
 
     for word in words:
-        test_display = get_display(" ".join(current + [word]))
-        bbox = draw.textbbox((0, 0), test_display, font=font)
-        if bbox[2] - bbox[0] <= max_width:
+        # Measure width using RAW text (logical order) — same characters, correct width
+        # Avoids bbox quirks from get_display reordering with mixed RTL+LTR (numbers)
+        test_raw = " ".join(current + [word])
+        bbox = draw.textbbox((0, 0), test_raw, font=font)
+        w = bbox[2] - bbox[0]
+
+        if w <= max_width or not current:
             current.append(word)
         else:
-            if current:
-                lines.append(get_display(" ".join(current)))
+            # base_dir='R' ensures correct RTL ordering regardless of mixed content
+            lines.append(get_display(" ".join(current), base_dir="R"))
             current = [word]
 
     if current:
-        lines.append(get_display(" ".join(current)))
+        lines.append(get_display(" ".join(current), base_dir="R"))
 
-    return lines or [get_display(text)]
+    return lines if lines else [get_display(text, base_dir="R")]
 
 
 def _pick_font_and_lines(draw, text: str):
