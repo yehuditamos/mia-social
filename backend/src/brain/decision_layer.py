@@ -142,11 +142,19 @@ def process_message(phone_number: str, message: str) -> str:
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "story_creation":
-                # Plain text while waiting for image → offer as text story
-                step = (state.flow_data or {}).get("step", "")
-                if step == "awaiting_image" and not message.startswith("__") and len(message.strip()) > 2:
+                msg_stripped = message.strip()
+                # "טקסט: [content]" at ANY step → switch to text-only story
+                if msg_stripped.lower().startswith("טקסט:") or msg_stripped.lower().startswith("text:"):
                     from src.specialists.memory.engine import update_conversation_flow as _ucf
-                    story_text = _strip_story_commands(message.strip())
+                    raw = msg_stripped.split(":", 1)[1].strip() if ":" in msg_stripped else msg_stripped
+                    story_text = _strip_story_commands(raw)
+                    _ucf(user.id, "text_story_creation", {"step": "awaiting_color", "text": story_text})
+                    return f"קיבלתי ✍️\n\nאיזה רקע?\n\n⬛ שחור\n⬜ לבן"
+                # Plain text while waiting for first image → offer as text story
+                step = (state.flow_data or {}).get("step", "")
+                if step == "awaiting_image" and not msg_stripped.startswith("__") and len(msg_stripped) > 2:
+                    from src.specialists.memory.engine import update_conversation_flow as _ucf
+                    story_text = _strip_story_commands(msg_stripped)
                     _ucf(user.id, "text_story_creation", {"step": "awaiting_color", "text": story_text})
                     return f"לא קיבלתי תמונה — אבל יש לי את הטקסט 😊\n\nאיזה רקע לסטורי?\n\n⬛ שחור\n⬜ לבן"
                 return handle_story_flow(user, state, business, message, DEFAULT_LANGUAGE)
