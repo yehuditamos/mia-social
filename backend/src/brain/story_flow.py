@@ -7,27 +7,31 @@ _APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "
 _CANCEL = {"לא", "בטל", "ביטול", "בטלי", "❌", "no", "cancel"}
 
 
-def start_story_flow(user: User, business: Business, image_id: str, language: str) -> str:
+def start_story_flow(user: User, business: Business, media_id: str, language: str) -> str:
     from src.whatsapp.media import download_media
     from src.db.storage import upload_image
 
-    image_url = None
+    media_url = None
+    media_kind = "image"
     try:
-        image_b64, mime_type = download_media(image_id)
-        image_url = upload_image(image_b64, mime_type, image_id)
-        print(f"[STORY] image_url={image_url}")
+        media_b64, mime_type = download_media(media_id)
+        media_url = upload_image(media_b64, mime_type, media_id)
+        media_kind = "video" if mime_type.startswith("video/") else "image"
+        print(f"[STORY] media_url={media_url} kind={media_kind}")
     except Exception as e:
-        print(f"[STORY FAIL step=image_setup] {repr(e)}")
+        print(f"[STORY FAIL step=media_setup] {repr(e)}")
 
-    if not image_url:
+    if not media_url:
         clear_conversation_flow(user.id)
-        return "מצטערת, לא הצלחתי לשמור את התמונה. אפשר לנסות שוב? שלחי את התמונה מחדש 🙏"
+        return "מצטערת, לא הצלחתי לשמור את הקובץ. אפשר לנסות שוב? שלחי מחדש 🙏"
 
+    emoji = "🎬" if media_kind == "video" else "📸"
     update_conversation_flow(user.id, "story_creation", {
         "step": "awaiting_approval",
-        "image_url": image_url,
+        "media_url": media_url,
+        "media_kind": media_kind,
     })
-    return "ראיתי את התמונה 📸\nלפרסם אותה כסטורי באינסטגרם?\n\n✅ כן\n❌ ביטול"
+    return f"ראיתי {emoji}\nלפרסם כסטורי באינסטגרם?\n\n✅ כן\n❌ ביטול"
 
 
 def handle_story_flow(user: User, state: ConversationState, business: Business,
@@ -61,10 +65,12 @@ def _handle_approval(user: User, state: ConversationState, business: Business,
 def _publish(user: User, flow_data: dict, language: str) -> str:
     from src.specialists.publishing.instagram import publish_story_to_instagram
 
-    image_url = flow_data.get("image_url")
-    if not image_url:
+    media_url = flow_data.get("media_url")
+    media_kind = flow_data.get("media_kind", "image")
+
+    if not media_url:
         clear_conversation_flow(user.id)
-        return "מצטערת, התמונה לא זמינה. שלחי תמונה חדשה."
+        return "מצטערת, הקובץ לא זמין. שלחי מחדש."
 
     business = get_business(user.id)
     if not business:
@@ -74,7 +80,7 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
     all_accounts = SocialAccountRepository().get_by_business(business.id)
     ig_accounts = [a for a in all_accounts if a.get("platform") == "instagram"]
 
-    print(f"[STORY PUBLISH] image_url={image_url} ig_accounts count={len(ig_accounts)}")
+    print(f"[STORY PUBLISH] media_url={media_url} kind={media_kind} ig_accounts={len(ig_accounts)}")
 
     if not ig_accounts:
         clear_conversation_flow(user.id)
@@ -84,11 +90,13 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
     try:
         publish_story_to_instagram(
             ig.get("platform_account_id"),
-            image_url,
+            media_url,
             ig.get("access_token"),
+            media_kind=media_kind,
         )
         clear_conversation_flow(user.id)
-        return "✅ הסטורי פורסם בהצלחה! 📸"
+        emoji = "🎬" if media_kind == "video" else "📸"
+        return f"✅ הסטורי פורסם בהצלחה! {emoji}"
     except Exception as e:
         print(f"[STORY PUBLISH ERROR] {repr(e)}")
         clear_conversation_flow(user.id)

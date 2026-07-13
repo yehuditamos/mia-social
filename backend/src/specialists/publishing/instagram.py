@@ -86,13 +86,15 @@ def publish_image_to_instagram(ig_user_id: str, image_url: str,
     return f"https://www.instagram.com/p/{post_id}/"
 
 
-def publish_story_to_instagram(ig_user_id: str, image_url: str, access_token: str) -> None:
-    print(f"[STORY STEP 1] ig_user_id={ig_user_id} image_url={image_url}")
+def publish_story_to_instagram(ig_user_id: str, media_url: str, access_token: str,
+                               media_kind: str = "image") -> None:
+    print(f"[STORY STEP 1] ig_user_id={ig_user_id} kind={media_kind} url={media_url}")
 
+    url_key = "video_url" if media_kind == "video" else "image_url"
     res1 = requests.post(
         f"{_GRAPH}/{ig_user_id}/media",
         data={
-            "image_url": image_url,
+            url_key: media_url,
             "media_type": "STORIES",
             "access_token": access_token,
         },

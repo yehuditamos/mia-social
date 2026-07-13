@@ -80,6 +80,9 @@ def receive_webhook():
     elif message_type == "image":
         image_id = messages[0].get("image", {}).get("id", "")
         text = f"__image__:{image_id}"
+    elif message_type == "video":
+        video_id = messages[0].get("video", {}).get("id", "")
+        text = f"__video__:{video_id}"
     elif message_type == "audio":
         text = "__audio__"
     else:

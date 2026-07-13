@@ -73,6 +73,12 @@ def process_message(phone_number: str, message: str) -> str:
                     return start_story_flow(user, business, image_id, DEFAULT_LANGUAGE)
                 return start_image_flow(user, business, image_id, DEFAULT_LANGUAGE)
 
+            if message.startswith("__video__:"):
+                video_id = message.split(":", 1)[1]
+                if state.flow == "story_creation":
+                    return start_story_flow(user, business, video_id, DEFAULT_LANGUAGE)
+                return "סרטונים זמינים כרגע לסטורי בלבד 🎬\nשלחי '2' ואז שלחי את הסרטון."
+
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "story_creation":
