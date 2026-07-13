@@ -383,6 +383,20 @@ def subscribe_waba():
     return jsonify({"status": res.status_code, "body": res.json()}), 200
 
 
+@app.route("/tasks/check-ig-comments", methods=["POST"])
+def check_ig_comments():
+    secret = request.headers.get("X-Task-Secret", "")
+    if secret != os.getenv("TASK_SECRET", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        from src.specialists.notifications.ig_poller import poll_all_accounts
+        count = poll_all_accounts()
+        return jsonify({"notified": count}), 200
+    except Exception as e:
+        print(f"[POLLER ENDPOINT] error: {repr(e)}")
+        return jsonify({"error": repr(e)}), 500
+
+
 @app.route("/debug/test", methods=["GET"])
 def debug_test():
     try:
