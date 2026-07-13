@@ -31,12 +31,33 @@ _REMINDER_PHRASES = ["תזכירי לי", "תזכיר לי", "תשלחי לי ת
 
 _UPLOAD_VERBS = {"תעלי", "פרסמי", "העלי", "תפרסמי", "תעלה", "העלה", "שלחי ל"}
 
+_TEXT_STORY_TRIGGERS = ["של טקסט", "רק טקסט", "טקסט בלבד", "טקסט:", "text:", "רק קישור", "כיתוב בלבד"]
+
 
 def _detect_intent(message: str) -> str:
-    words = set(message.strip().lower().split())
+    msg_lower = message.lower().strip()
+    words = set(msg_lower.split())
+
+    # Explicit text story prefix
+    if msg_lower.startswith("טקסט:") or msg_lower.startswith("text:"):
+        return "text_story"
+
+    # Natural upload commands — "תעלי סטורי", "פרסמי ריל", etc.
+    if any(v in msg_lower for v in _UPLOAD_VERBS):
+        if any(w in msg_lower for w in {"סטורי", "story", "סטוריז"}):
+            if any(t in msg_lower for t in _TEXT_STORY_TRIGGERS):
+                return "text_story"
+            return "create_story"
+        if any(w in msg_lower for w in {"ריל", "reel", "reels"}):
+            return "create_reel"
+        if any(w in msg_lower for w in {"פוסט", "post"}):
+            return "create_post"
+
     if words & _POST_KEYWORDS:
         return "create_post"
     if words & _STORY_KEYWORDS:
+        if any(t in msg_lower for t in _TEXT_STORY_TRIGGERS):
+            return "text_story"
         return "create_story"
     if words & _REEL_KEYWORDS:
         return "create_reel"
@@ -44,17 +65,6 @@ def _detect_intent(message: str) -> str:
         return "accessibility"
     if words & _SETTINGS_KEYWORDS:
         return "settings"
-
-    msg_lower = message.lower()
-
-    # Natural upload commands — "תעלי סטורי", "פרסמי ריל", etc.
-    if any(v in msg_lower for v in _UPLOAD_VERBS):
-        if any(w in msg_lower for w in {"סטורי", "story", "סטוריז"}):
-            return "create_story"
-        if any(w in msg_lower for w in {"ריל", "reel", "reels"}):
-            return "create_reel"
-        if any(w in msg_lower for w in {"פוסט", "post"}):
-            return "create_post"
 
     if any(p in msg_lower for p in _REMINDER_PHRASES):
         return "reminder"
@@ -80,6 +90,8 @@ def handle_post_onboarding(user: User, business: Optional[Business], message: st
     if intent == "create_post":
         update_conversation_flow(user.id, "post_creation", {"step": "awaiting_topic"})
         return get_string("post_ask_topic", language=language)
+    if intent == "text_story":
+        return _handle_text_story_start(user, message, language)
     if intent == "create_story":
         update_conversation_flow(user.id, "story_creation", {"step": "awaiting_image"})
         return get_string("menu_create_story", language=language)
@@ -129,6 +141,34 @@ def handle_post_onboarding(user: User, business: Optional[Business], message: st
 
     from src.brain.free_chat import handle_free_chat
     return handle_free_chat(user, business, message)
+
+
+def _handle_text_story_start(user: User, message: str, language: str) -> str:
+    text = _extract_story_text(message)
+    if text:
+        update_conversation_flow(user.id, "text_story_creation", {"step": "awaiting_color", "text": text})
+        return f"שמרתי: \"{text}\"\n\nאיזה רקע?\n\n⬛ שחור\n⬜ לבן"
+    update_conversation_flow(user.id, "text_story_creation", {"step": "awaiting_text"})
+    return "מה הטקסט לסטורי? ✍️\n\n(מיה תיצור תמונה עם הטקסט שלך)"
+
+
+def _extract_story_text(message: str) -> str:
+    msg = message.strip()
+    for marker in ["של טקסט", "טקסט:", "text:", "רק טקסט", "כיתוב:"]:
+        idx = msg.lower().find(marker.lower())
+        if idx != -1:
+            after = msg[idx + len(marker):].strip()
+            if len(after) > 1:
+                return after
+    # "תעלי סטורי מחר נפגשות" — content after "סטורי"
+    for kw in ["סטוריז", "סטורי", "story"]:
+        idx = msg.lower().find(kw)
+        if idx != -1:
+            after = msg[idx + len(kw):].strip()
+            # Only use if it's actual content (not a trigger keyword)
+            if len(after) > 3 and not any(v in after.lower() for v in {"טקסט", "text"}):
+                return after
+    return ""
 
 
 def _handle_save_goal(user: User, business: Business, message: str) -> str:

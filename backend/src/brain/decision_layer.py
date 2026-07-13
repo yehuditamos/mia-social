@@ -132,6 +132,9 @@ def process_message(phone_number: str, message: str) -> str:
                 from src.brain.idea_bank import save_idea_from_description
                 return save_idea_from_description(user, business, message)
 
+            if state.flow == "text_story_creation":
+                return _handle_text_story_flow(user, business, state, message, DEFAULT_LANGUAGE)
+
             if state.flow == "accessibility_image_confirm":
                 return _handle_accessibility_confirm(user, business, message, DEFAULT_LANGUAGE)
             if state.flow == "accessibility_choose_type":
@@ -139,6 +142,12 @@ def process_message(phone_number: str, message: str) -> str:
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "story_creation":
+                # Plain text while waiting for image → offer as text story
+                step = (state.flow_data or {}).get("step", "")
+                if step == "awaiting_image" and not message.startswith("__") and len(message.strip()) > 2:
+                    from src.specialists.memory.engine import update_conversation_flow as _ucf
+                    _ucf(user.id, "text_story_creation", {"step": "awaiting_color", "text": message.strip()})
+                    return f"לא קיבלתי תמונה — אבל יש לי את הטקסט 😊\n\nאיזה רקע לסטורי?\n\n⬛ שחור\n⬜ לבן"
                 return handle_story_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "reel_creation":
                 return handle_reel_flow(user, state, business, message, DEFAULT_LANGUAGE)
@@ -219,6 +228,61 @@ def _handle_accessibility_confirm(user, business, message: str, language: str) -
 
     clear_conversation_flow(user.id)
     return "בסדר 💜 שלחי תמונה אחרת."
+
+
+def _handle_text_story_flow(user, business, state, message: str, language: str) -> str:
+    from src.specialists.memory.engine import update_conversation_flow, clear_conversation_flow
+
+    data = state.flow_data or {}
+    step = data.get("step", "awaiting_color")
+    text = data.get("text", "")
+
+    if step == "awaiting_text":
+        t = message.strip()
+        update_conversation_flow(user.id, "text_story_creation", {"step": "awaiting_color", "text": t})
+        return f"שמרתי: \"{t}\"\n\nאיזה רקע?\n\n⬛ שחור\n⬜ לבן"
+
+    if step == "awaiting_color":
+        msg = message.strip().lower()
+        if any(w in msg for w in {"שחור", "⬛", "black", "dark", "1"}):
+            return _publish_text_story(user, business, text, "black")
+        if any(w in msg for w in {"לבן", "⬜", "white", "light", "2"}):
+            return _publish_text_story(user, business, text, "white")
+        return "שחור ⬛ או לבן ⬜?"
+
+    clear_conversation_flow(user.id)
+    return "נסי שוב 💜"
+
+
+def _publish_text_story(user, business, text: str, bg: str) -> str:
+    from src.specialists.memory.engine import clear_conversation_flow
+    from src.brain.text_story import generate_and_upload
+    from src.db.repositories.social_account import SocialAccountRepository
+    from src.specialists.publishing.instagram import publish_story_to_instagram
+
+    clear_conversation_flow(user.id)
+
+    if not business:
+        return "לא נמצא עסק מחובר."
+
+    ig_accounts = SocialAccountRepository().get_by_business(business.id, platform="instagram")
+    if not ig_accounts:
+        return "אין חשבון אינסטגרם מחובר 📸"
+
+    try:
+        image_url = generate_and_upload(text, bg)
+        ig = ig_accounts[0]
+        publish_story_to_instagram(
+            ig.get("platform_account_id"),
+            image_url,
+            ig.get("access_token"),
+            "image",
+        )
+        bg_display = "שחור ⬛" if bg == "black" else "לבן ⬜"
+        return f"✅ הסטורי פורסם!\n\n📝 {text}\n🎨 רקע {bg_display}"
+    except Exception as e:
+        print(f"[TEXT STORY PUBLISH] error: {repr(e)}")
+        return "אופס, לא הצלחתי לפרסם את הסטורי. נסי שוב 💜"
 
 
 def _handle_ig_reply(user, text: str) -> str:
