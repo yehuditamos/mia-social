@@ -22,6 +22,7 @@ def upload_image(image_b64: str, mime_type: str, filename_hint: str = None) -> s
         f"{supabase_url}/storage/v1/object/post-media/{filename}",
         headers={
             "Authorization": f"Bearer {service_key}",
+            "apikey": service_key,
             "Content-Type": mime_type,
         },
         data=image_bytes,
