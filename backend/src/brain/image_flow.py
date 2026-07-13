@@ -31,9 +31,9 @@ def start_image_flow(user: User, business: Business, image_id: str, language: st
         image_b64, mime_type = download_media(image_id)
         image_url = upload_image(image_b64, mime_type, image_id)
         analysis = analyze_image(image_b64, mime_type)
-        print("IMAGE ANALYSIS:", analysis[:100] if analysis else None)
+        print(f"[IG STEP 4] image_url stored in flow_data: {image_url}")
     except Exception as e:
-        print("IMAGE SETUP ERROR:", repr(e))
+        print(f"[IG FAIL step=image_setup] {repr(e)}")
 
     update_conversation_flow(user.id, "image_post", {
         "step": "awaiting_goal",
@@ -155,18 +155,22 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
     all_accounts = SocialAccountRepository().get_by_business(business.id)
 
     # Instagram first (image required)
+    print(f"[IG PUBLISH] image_url={image_url}")
+    print(f"[IG PUBLISH] all_accounts platforms={[a.get('platform') for a in all_accounts]}")
     if image_url:
         ig_accounts = [a for a in all_accounts if a.get("platform") == "instagram"]
+        print(f"[IG PUBLISH] ig_accounts count={len(ig_accounts)}")
         if ig_accounts:
             ig = ig_accounts[0]
             ig_user_id = ig.get("platform_account_id")
             access_token = ig.get("access_token")
+            print(f"[IG PUBLISH] ig_user_id={ig_user_id} token_present={bool(access_token)}")
             try:
                 post_url = publish_image_to_instagram(ig_user_id, image_url, caption, access_token)
                 clear_conversation_flow(user.id)
                 return get_string("post_published", language=language, post_url=post_url)
             except Exception as e:
-                print("INSTAGRAM PUBLISH ERROR:", repr(e))
+                print(f"[IG PUBLISH ERROR] {repr(e)}")
 
     # Fallback: Facebook (text)
     fb_accounts = [a for a in all_accounts if a.get("platform") == "facebook"]

@@ -1,3 +1,4 @@
+import time
 import requests
 
 _GRAPH = "https://graph.facebook.com/v20.0"
@@ -5,6 +6,12 @@ _GRAPH = "https://graph.facebook.com/v20.0"
 
 def publish_image_to_instagram(ig_user_id: str, image_url: str,
                                 caption: str, access_token: str) -> str:
+    print(f"[IG STEP 5] ig_user_id={ig_user_id}")
+    print(f"[IG STEP 5] token_prefix={access_token[:12] if access_token else None}...")
+    print(f"[IG STEP 6] image_url={image_url}")
+
+    # Step 1: Create media container
+    print("[IG STEP 7a] Creating media container...")
     res1 = requests.post(
         f"{_GRAPH}/{ig_user_id}/media",
         data={
@@ -14,26 +21,66 @@ def publish_image_to_instagram(ig_user_id: str, image_url: str,
         },
         timeout=30,
     )
+    print(f"[IG STEP 7b] Container create status: {res1.status_code}")
+    print(f"[IG STEP 7b] Container create body: {res1.text}")
     data1 = res1.json()
-    print("INSTAGRAM MEDIA CREATE status:", res1.status_code, data1)
 
     if "error" in data1:
-        raise RuntimeError(f"Instagram media create failed: {data1['error']}")
+        raise RuntimeError(
+            f"[IG FAIL step=container_create status={res1.status_code}] "
+            f"code={data1['error'].get('code')} "
+            f"type={data1['error'].get('type')} "
+            f"message={data1['error'].get('message')}"
+        )
 
     creation_id = data1.get("id")
     if not creation_id:
-        raise RuntimeError(f"No creation_id: {data1}")
+        raise RuntimeError(f"[IG FAIL step=container_create] No id in response: {data1}")
 
+    print(f"[IG STEP 7c] creation_id={creation_id}")
+
+    # Step 2: Check container status (must be FINISHED before publishing)
+    print("[IG STEP 8] Checking container status...")
+    for attempt in range(6):
+        status_res = requests.get(
+            f"{_GRAPH}/{creation_id}",
+            params={"fields": "status_code", "access_token": access_token},
+            timeout=15,
+        )
+        status_data = status_res.json()
+        status_code = status_data.get("status_code")
+        print(f"[IG STEP 8] attempt={attempt+1} status_code={status_code} body={status_data}")
+
+        if status_code == "FINISHED":
+            break
+        if status_code == "ERROR":
+            raise RuntimeError(f"[IG FAIL step=container_status] Container ERROR: {status_data}")
+        if status_code == "EXPIRED":
+            raise RuntimeError(f"[IG FAIL step=container_status] Container EXPIRED: {status_data}")
+
+        time.sleep(3)
+    else:
+        raise RuntimeError(f"[IG FAIL step=container_status] Timed out waiting for FINISHED, last={status_data}")
+
+    # Step 3: Publish
+    print(f"[IG STEP 9a] Publishing creation_id={creation_id}...")
     res2 = requests.post(
         f"{_GRAPH}/{ig_user_id}/media_publish",
         data={"creation_id": creation_id, "access_token": access_token},
         timeout=30,
     )
+    print(f"[IG STEP 9b] Publish status: {res2.status_code}")
+    print(f"[IG STEP 9b] Publish body: {res2.text}")
     data2 = res2.json()
-    print("INSTAGRAM PUBLISH status:", res2.status_code, data2)
 
     if "error" in data2:
-        raise RuntimeError(f"Instagram publish failed: {data2['error']}")
+        raise RuntimeError(
+            f"[IG FAIL step=media_publish status={res2.status_code}] "
+            f"code={data2['error'].get('code')} "
+            f"type={data2['error'].get('type')} "
+            f"message={data2['error'].get('message')}"
+        )
 
     post_id = data2.get("id", "")
+    print(f"[IG SUCCESS] post_id={post_id}")
     return f"https://www.instagram.com/p/{post_id}/"

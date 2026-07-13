@@ -15,6 +15,9 @@ def upload_image(image_b64: str, mime_type: str, filename_hint: str = None) -> s
     filename = f"{filename_hint or str(uuid.uuid4())}.{ext}"
     image_bytes = base64.b64decode(image_b64)
 
+    public_url = f"{supabase_url}/storage/v1/object/public/post-media/{filename}"
+    print(f"[IG STEP 3] Uploading to Supabase Storage: {filename} ({len(image_bytes)} bytes)")
+
     res = requests.post(
         f"{supabase_url}/storage/v1/object/post-media/{filename}",
         headers={
@@ -24,10 +27,16 @@ def upload_image(image_b64: str, mime_type: str, filename_hint: str = None) -> s
         data=image_bytes,
         timeout=30,
     )
-    print("STORAGE UPLOAD status:", res.status_code)
-    print("STORAGE UPLOAD body:", res.text[:200])
+    print(f"[IG STEP 3] upload status={res.status_code} body={res.text[:200]}")
 
     if res.status_code not in (200, 201):
-        raise RuntimeError(f"Storage upload failed: {res.text}")
+        raise RuntimeError(f"[IG FAIL step=storage_upload status={res.status_code}] {res.text}")
 
-    return f"{supabase_url}/storage/v1/object/public/post-media/{filename}"
+    # Step 4: Verify public URL is accessible
+    print(f"[IG STEP 4] Verifying public URL: {public_url}")
+    check = requests.head(public_url, timeout=10)
+    print(f"[IG STEP 4] public URL check status={check.status_code}")
+    if check.status_code not in (200, 206):
+        raise RuntimeError(f"[IG FAIL step=public_url_check status={check.status_code}] URL not publicly accessible: {public_url}")
+
+    return public_url
