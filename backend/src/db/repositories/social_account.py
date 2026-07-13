@@ -61,7 +61,7 @@ class SocialAccountRepository:
         }
 
         res = requests.post(
-            f"{get_base_url()}/social_accounts",
+            f"{get_base_url()}/social_accounts?on_conflict=business_id,platform,platform_account_id",
             headers=get_headers(prefer="resolution=merge-duplicates,return=representation"),
             json=payload,
         )
