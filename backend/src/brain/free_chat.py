@@ -109,6 +109,60 @@ def _call_claude(api_key: str, system: str, message: str, max_tokens: int = 350)
     return data["content"][0]["text"].strip()
 
 
+def describe_image_accessibility(image_b64: str, mime_type: str) -> str:
+    """Describe an image in Hebrew for a blind user using Claude Vision."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return "לא הצלחתי לתאר את התמונה."
+
+    # Strip codec suffix for safety
+    base_mime = mime_type.split(";")[0].strip()
+
+    try:
+        res = requests.post(
+            _API_URL,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": _MODEL,
+                "max_tokens": 300,
+                "system": (
+                    "תארי את התמונה בעברית ישראלית ברורה ופשוטה, "
+                    "עבור משתמש עיוור שרוצה לדעת מה בתמונה לפני שמפרסם אותה. "
+                    "ציוני: מה רואים, אנשים (תיאור כללי), צבעים עיקריים, מיקום, אווירה. "
+                    "3-4 משפטים קצרים. אל תזכירי שאת AI."
+                ),
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": base_mime,
+                                "data": image_b64,
+                            },
+                        },
+                        {"type": "text", "text": "תארי לי את התמונה."},
+                    ],
+                }],
+            },
+            timeout=25,
+        )
+        data = res.json()
+        print(f"[VISION] status={res.status_code}")
+        if res.status_code != 200 or "content" not in data:
+            print(f"[VISION] error: {data}")
+            return "לא הצלחתי לתאר את התמונה."
+        return data["content"][0]["text"].strip()
+    except Exception as e:
+        print(f"[VISION ERROR] {repr(e)}")
+        return "לא הצלחתי לתאר את התמונה."
+
+
 def _val(business: Optional[Business], field: str, default: str) -> str:
     if not business:
         return default

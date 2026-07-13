@@ -104,7 +104,19 @@ def receive_webhook():
         video_id = messages[0].get("video", {}).get("id", "")
         text = f"__video__:{video_id}"
     elif message_type == "audio":
-        text = "__audio__"
+        audio_id = messages[0].get("audio", {}).get("id", "")
+        if audio_id:
+            try:
+                from src.whatsapp.transcriber import transcribe_audio
+                transcribed = transcribe_audio(audio_id)
+                text = transcribed if transcribed else "__audio__"
+                if transcribed:
+                    print(f"[AUDIO] Transcribed: {transcribed[:80]}")
+            except Exception as e:
+                print(f"[AUDIO] Transcribe error: {repr(e)}")
+                text = "__audio__"
+        else:
+            text = "__audio__"
     else:
         print("CHECKPOINT 6 SKIP: unsupported message type:", message_type)
         return jsonify({"status": "received"}), 200

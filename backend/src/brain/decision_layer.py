@@ -77,7 +77,12 @@ def process_message(phone_number: str, message: str) -> str:
                 image_id = message.split(":", 1)[1]
                 if state.flow == "story_creation":
                     return start_story_flow(user, business, image_id, DEFAULT_LANGUAGE)
-                return start_image_flow(user, business, image_id, DEFAULT_LANGUAGE)
+                if state.flow == "accessibility_image_confirm":
+                    pass  # handled below in flow checks
+                elif user.accessibility and not state.flow:
+                    return _describe_image_for_blind(user, business, image_id, DEFAULT_LANGUAGE)
+                else:
+                    return start_image_flow(user, business, image_id, DEFAULT_LANGUAGE)
 
             if message.startswith("__video__:"):
                 video_id = message.split(":", 1)[1]
@@ -102,6 +107,8 @@ def process_message(phone_number: str, message: str) -> str:
                     return start_reel_flow(user, business, stored_video, DEFAULT_LANGUAGE)
                 return "🎬 מה תרצי לעשות עם הסרטון?\n\n1️⃣ סטורי\n2️⃣ ריל"
 
+            if state.flow == "accessibility_image_confirm":
+                return _handle_accessibility_confirm(user, business, message, DEFAULT_LANGUAGE)
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "story_creation":
@@ -113,6 +120,42 @@ def process_message(phone_number: str, message: str) -> str:
         return handle_post_onboarding(user, business, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)
+
+
+def _describe_image_for_blind(user, business, image_id: str, language: str) -> str:
+    from src.whatsapp.media import download_media
+    from src.brain.free_chat import describe_image_accessibility
+    from src.specialists.memory.engine import update_conversation_flow
+
+    try:
+        media_b64, mime_type = download_media(image_id)
+        description = describe_image_accessibility(media_b64, mime_type)
+    except Exception as e:
+        print(f"[ACCESSIBILITY] image describe error: {repr(e)}")
+        return start_image_flow(user, business, image_id, language)
+
+    update_conversation_flow(user.id, "accessibility_image_confirm", {"image_id": image_id})
+    return f"🖼 מיה רואה:\n{description}\n\nהתמונה נכונה? (כן / לא)"
+
+
+def _handle_accessibility_confirm(user, business, message: str, language: str) -> str:
+    from src.specialists.memory.engine import get_conversation_state, clear_conversation_flow
+
+    state = get_conversation_state(user.id)
+    image_id = (state.flow_data or {}).get("image_id", "") if state else ""
+    msg = message.strip().lower()
+
+    _CONFIRM = {"כן", "yes", "✅", "אישור", "נכון", "בדיוק", "כן זה", "כן תמשיכי"}
+    _CANCEL = {"לא", "no", "❌", "לא זה", "אחרת", "שגוי"}
+
+    if msg in _CONFIRM or any(w in msg for w in {"כן", "yes", "נכון", "בדיוק"}):
+        clear_conversation_flow(user.id)
+        if image_id:
+            return start_image_flow(user, business, image_id, language)
+        return "בסדר, שלחי את התמונה שוב 💜"
+
+    clear_conversation_flow(user.id)
+    return "בסדר 💜 שלחי תמונה אחרת."
 
 
 def _handle_ig_reply(user, text: str) -> str:
