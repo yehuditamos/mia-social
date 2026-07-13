@@ -35,6 +35,10 @@ def start_image_flow(user: User, business: Business, image_id: str, language: st
     except Exception as e:
         print(f"[IG FAIL step=image_setup] {repr(e)}")
 
+    if not image_url:
+        clear_conversation_flow(user.id)
+        return "מצטערת, לא הצלחתי לשמור את התמונה. אפשר לנסות שוב? שלחי את התמונה מחדש 🙏"
+
     update_conversation_flow(user.id, "image_post", {
         "step": "awaiting_goal",
         "image_analysis": analysis,
@@ -147,44 +151,36 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
     caption = flow_data.get("caption", "")
     image_url = flow_data.get("image_url")
 
+    if not image_url:
+        print("[IG PUBLISH ABORT] image_url is missing from flow_data")
+        clear_conversation_flow(user.id)
+        return "מצטערת, התמונה לא זמינה לפרסום. שלחי תמונה חדשה כדי לנסות שוב."
+
     business = get_business(user.id)
     if not business:
         clear_conversation_flow(user.id)
         return get_string("post_no_accounts", language=language)
 
     all_accounts = SocialAccountRepository().get_by_business(business.id)
+    ig_accounts = [a for a in all_accounts if a.get("platform") == "instagram"]
 
-    # Instagram first (image required)
     print(f"[IG PUBLISH] image_url={image_url}")
-    print(f"[IG PUBLISH] all_accounts platforms={[a.get('platform') for a in all_accounts]}")
-    if image_url:
-        ig_accounts = [a for a in all_accounts if a.get("platform") == "instagram"]
-        print(f"[IG PUBLISH] ig_accounts count={len(ig_accounts)}")
-        if ig_accounts:
-            ig = ig_accounts[0]
-            ig_user_id = ig.get("platform_account_id")
-            access_token = ig.get("access_token")
-            print(f"[IG PUBLISH] ig_user_id={ig_user_id} token_present={bool(access_token)}")
-            try:
-                post_url = publish_image_to_instagram(ig_user_id, image_url, caption, access_token)
-                clear_conversation_flow(user.id)
-                return get_string("post_published", language=language, post_url=post_url)
-            except Exception as e:
-                print(f"[IG PUBLISH ERROR] {repr(e)}")
+    print(f"[IG PUBLISH] ig_accounts count={len(ig_accounts)}")
 
-    # Fallback: Facebook (text)
-    fb_accounts = [a for a in all_accounts if a.get("platform") == "facebook"]
-    if fb_accounts:
-        fb = fb_accounts[0]
-        page_id = fb.get("page_id")
-        page_token = (fb.get("metadata") or {}).get("page_access_token")
-        if page_id and page_token:
-            try:
-                post_url = publish_text_post(page_id, page_token, caption)
-                clear_conversation_flow(user.id)
-                return get_string("post_published", language=language, post_url=post_url)
-            except Exception as e:
-                print("FACEBOOK PUBLISH ERROR:", repr(e))
+    if not ig_accounts:
+        clear_conversation_flow(user.id)
+        return get_string("post_no_accounts", language=language)
 
-    clear_conversation_flow(user.id)
-    return get_string("post_publish_error", language=language)
+    ig = ig_accounts[0]
+    ig_user_id = ig.get("platform_account_id")
+    access_token = ig.get("access_token")
+    print(f"[IG PUBLISH] ig_user_id={ig_user_id} token_present={bool(access_token)}")
+
+    try:
+        post_url = publish_image_to_instagram(ig_user_id, image_url, caption, access_token)
+        clear_conversation_flow(user.id)
+        return get_string("post_published", language=language, post_url=post_url)
+    except Exception as e:
+        print(f"[IG PUBLISH ERROR] {repr(e)}")
+        clear_conversation_flow(user.id)
+        return get_string("post_publish_error", language=language)

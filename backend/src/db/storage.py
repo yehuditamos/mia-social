@@ -5,7 +5,11 @@ import requests
 
 
 def upload_image(image_b64: str, mime_type: str, filename_hint: str = None) -> str:
-    supabase_url = os.getenv("SUPABASE_URL")
+    raw_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    # SUPABASE_URL env var may include the PostgREST suffix (/rest/v1); strip to project root
+    if raw_url.endswith("/rest/v1"):
+        raw_url = raw_url[: -len("/rest/v1")]
+    supabase_url = raw_url
     service_key = os.getenv("SUPABASE_SERVICE_KEY")
 
     if not service_key:
