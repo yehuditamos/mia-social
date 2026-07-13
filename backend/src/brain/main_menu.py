@@ -22,6 +22,11 @@ _PLAN_PHRASES = [
     "תכנן לי", "תכיני לי תוכן לשבוע", "תוכנית שבועית",
 ]
 
+_MONTHLY_PLAN_PHRASES = [
+    "תכנן חודש", "תכנני חודש", "גאנט", "חודש תוכן",
+    "תוכן לחודש", "תכנון חודשי", "תוכנית חודשית",
+]
+
 _REMINDER_PHRASES = ["תזכירי לי", "תזכיר לי", "תשלחי לי תזכורת"]
 
 
@@ -41,10 +46,18 @@ def _detect_intent(message: str) -> str:
     msg_lower = message.lower()
     if any(p in msg_lower for p in _REMINDER_PHRASES):
         return "reminder"
+    if any(p in msg_lower for p in _MONTHLY_PLAN_PHRASES):
+        return "monthly_plan"
     if any(p in msg_lower for p in _PLAN_PHRASES):
         return "weekly_plan"
     if any(p in msg_lower for p in _GOAL_PHRASES):
         return "save_goal"
+
+    # Idea bank intents (checked last, before free chat)
+    from src.brain.idea_bank import detect_idea_intent
+    idea_intent, _ = detect_idea_intent(message)
+    if idea_intent:
+        return f"idea_{idea_intent}"
 
     return "free_chat"
 
@@ -73,12 +86,34 @@ def handle_post_onboarding(user: User, business: Optional[Business], message: st
     if not business:
         return get_string("main_menu", language=language, name=user.name or "")
 
+    if intent == "monthly_plan":
+        from src.brain.monthly_plan import generate_monthly_plan
+        return generate_monthly_plan(user, business)
+
     if intent == "weekly_plan":
         from src.brain.free_chat import handle_weekly_plan
         return handle_weekly_plan(user, business)
 
     if intent == "save_goal":
         return _handle_save_goal(user, business, message)
+
+    if intent == "idea_list_ideas":
+        from src.brain.idea_bank import list_ideas
+        return list_ideas(business)
+
+    if intent == "idea_ask_for_idea":
+        from src.brain.idea_bank import start_idea_capture
+        return start_idea_capture(user)
+
+    if intent == "idea_save_idea_now":
+        from src.brain.idea_bank import detect_idea_intent, save_idea_from_description
+        _, idea_text = detect_idea_intent(message)
+        return save_idea_from_description(user, business, idea_text or message)
+
+    if intent == "idea_use_idea":
+        from src.brain.idea_bank import detect_idea_intent, use_idea
+        _, n = detect_idea_intent(message)
+        return use_idea(user, business, n or 1)
 
     from src.brain.free_chat import handle_free_chat
     return handle_free_chat(user, business, message)

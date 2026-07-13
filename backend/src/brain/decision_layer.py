@@ -68,6 +68,20 @@ def process_message(phone_number: str, message: str) -> str:
                 print(f"POST_ONBOARDING: sending connect URL={oauth_url}")
                 return get_string("connect_accounts_prompt", language=DEFAULT_LANGUAGE, oauth_url=oauth_url)
 
+            # First time after connecting — set up monthly planning
+            if business.planning_day is None and state.flow is None:
+                from src.specialists.memory.engine import update_conversation_flow
+                update_conversation_flow(user.id, "setup_planning_schedule", {})
+                return (
+                    f"🗓️ שאלה אחת לפני שמתחילות!\n\n"
+                    f"מתי בחודש תרצי שמיה תיזום ישיבת תכנון תוכן חודשית?\n\n"
+                    f"למשל: *25 בשעה 10* או *סוף החודש בשעה 9*"
+                )
+
+            if state.flow == "setup_planning_schedule":
+                from src.brain.monthly_plan import handle_setup_planning
+                return handle_setup_planning(user, business, message)
+
             if message.strip().startswith("ענה"):
                 rest = message.strip()[3:].lstrip(" :,")
                 if rest:
@@ -106,6 +120,10 @@ def process_message(phone_number: str, message: str) -> str:
                     update_conversation_flow(user.id, "reel_creation", {"step": "awaiting_video"})
                     return start_reel_flow(user, business, stored_video, DEFAULT_LANGUAGE)
                 return "🎬 מה תרצי לעשות עם הסרטון?\n\n1️⃣ סטורי\n2️⃣ ריל"
+
+            if state.flow == "idea_capture":
+                from src.brain.idea_bank import save_idea_from_description
+                return save_idea_from_description(user, business, message)
 
             if state.flow == "accessibility_image_confirm":
                 return _handle_accessibility_confirm(user, business, message, DEFAULT_LANGUAGE)

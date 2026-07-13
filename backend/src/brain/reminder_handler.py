@@ -78,13 +78,21 @@ def send_due_reminders() -> int:
         phone = reminder.get("phone_number")
         content = reminder.get("content", "")
         rid = reminder.get("id")
+        is_recurring = reminder.get("recurrence") == "monthly"
         if not phone or not rid:
             continue
         try:
-            send_message(phone, f"⏰ תזכורת מיה:\n\n{content}")
+            if is_recurring:
+                send_message(phone, content)  # Planning reminders have full message as content
+            else:
+                send_message(phone, f"⏰ תזכורת מיה:\n\n{content}")
             _mark_sent(rid)
             count += 1
             print(f"[REMINDERS] sent to {phone}: {content[:40]}")
+
+            # Create next month's reminder
+            if is_recurring:
+                _create_next_monthly(reminder)
         except Exception as e:
             print(f"[REMINDERS] send error {rid}: {repr(e)}")
 
@@ -147,6 +155,38 @@ def _save(user_id: str, phone: str, content: str, remind_at: str) -> None:
         },
     )
     print(f"[REMINDER SAVE] status={res.status_code} body={res.text[:100]}")
+
+
+def _create_next_monthly(reminder: dict) -> None:
+    import calendar as cal
+    try:
+        old_dt = datetime.fromisoformat(reminder["remind_at"])
+        day = reminder.get("recurrence_day") or old_dt.astimezone(_IL_TZ).day
+
+        # Move forward one month
+        next_month = old_dt.month % 12 + 1
+        next_year = old_dt.year + (1 if next_month == 1 else 0)
+        max_day = cal.monthrange(next_year, next_month)[1]
+        clamped_day = min(day, max_day)
+
+        next_dt = old_dt.replace(year=next_year, month=next_month, day=clamped_day)
+
+        res = requests.post(
+            f"{get_base_url()}/reminders",
+            headers=get_headers(),
+            json={
+                "user_id": reminder["user_id"],
+                "phone_number": reminder["phone_number"],
+                "content": reminder["content"],
+                "remind_at": next_dt.isoformat(),
+                "sent": False,
+                "recurrence": "monthly",
+                "recurrence_day": day,
+            },
+        )
+        print(f"[REMINDERS] next monthly created for {next_dt.date()} status={res.status_code}")
+    except Exception as e:
+        print(f"[REMINDERS] create_next_monthly error: {repr(e)}")
 
 
 def _mark_sent(reminder_id: str) -> None:

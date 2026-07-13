@@ -20,6 +20,8 @@ class Business:
     writing_style: Optional[str] = None
     communication_preferences: Optional[str] = None
     goals: Optional[str] = None
+    planning_day: Optional[int] = None
+    planning_time: Optional[str] = None
 
 
 @dataclass

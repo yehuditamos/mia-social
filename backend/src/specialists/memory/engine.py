@@ -72,6 +72,8 @@ def get_business(user_id: str) -> Optional[Business]:
             writing_style=d.get("writing_style"),
             communication_preferences=d.get("communication_preferences"),
             goals=d.get("goals"),
+            planning_day=d.get("planning_day"),
+            planning_time=d.get("planning_time"),
         )
     except Exception:
         return None
