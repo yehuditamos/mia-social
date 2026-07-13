@@ -103,15 +103,44 @@ def _cmd_subscribe_ig(user: User) -> str:
     if not business:
         return "[dev] ❌ אין פרופיל עסק."
 
-    accounts = SocialAccountRepository().get_by_business(business.id, platform="instagram")
-    if not accounts:
+    ig_accounts = SocialAccountRepository().get_by_business(business.id, platform="instagram")
+    fb_accounts = SocialAccountRepository().get_by_business(business.id, platform="facebook")
+    if not ig_accounts:
         return "[dev] ❌ אין חשבון אינסטגרם מחובר."
 
+    # Build page_id → page_access_token lookup from Facebook accounts
+    page_tokens = {}
+    for fb in fb_accounts:
+        pid = fb.get("page_id") or fb.get("platform_account_id")
+        pt = (fb.get("metadata") or {}).get("page_access_token") or fb.get("access_token")
+        if pid and pt:
+            page_tokens[pid] = pt
+
     lines = []
-    for acc in accounts:
+    for acc in ig_accounts:
         ig_id = acc.get("platform_account_id")
-        token = acc.get("access_token")
+        page_id = acc.get("page_id")
         username = acc.get("account_username", ig_id)
+
+        # Approach 1: subscribe via the linked Facebook Page
+        page_token = page_tokens.get(page_id) if page_id else None
+        if page_token and page_id:
+            try:
+                r = req.post(
+                    f"https://graph.facebook.com/v20.0/{page_id}/subscribed_apps",
+                    params={"subscribed_fields": "instagram,mention", "access_token": page_token},
+                    timeout=10,
+                )
+                body = r.json()
+                lines.append(f"Page [{page_id}]: {body}")
+                if body.get("success"):
+                    lines.append(f"✅ @{username} — מנוי דרך Page")
+                    continue
+            except Exception as e:
+                lines.append(f"Page error: {repr(e)}")
+
+        # Approach 2: subscribe directly via IG user (old API)
+        token = acc.get("access_token")
         try:
             r = req.post(
                 f"https://graph.facebook.com/v20.0/{ig_id}/subscribed_apps",
@@ -119,10 +148,11 @@ def _cmd_subscribe_ig(user: User) -> str:
                 timeout=10,
             )
             body = r.json()
+            lines.append(f"IG user [{ig_id}]: {body}")
             if body.get("success"):
-                lines.append(f"✅ @{username} — מנוי לתגובות ואזכורים")
+                lines.append(f"✅ @{username} — מנוי ישירות")
             else:
-                lines.append(f"❌ @{username} — {body}")
+                lines.append(f"❌ @{username} — שתי השיטות נכשלו")
         except Exception as e:
             lines.append(f"❌ @{username} — {repr(e)}")
 
