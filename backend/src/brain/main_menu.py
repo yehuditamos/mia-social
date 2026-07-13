@@ -29,6 +29,8 @@ _MONTHLY_PLAN_PHRASES = [
 
 _REMINDER_PHRASES = ["תזכירי לי", "תזכיר לי", "תשלחי לי תזכורת"]
 
+_UPLOAD_VERBS = {"תעלי", "פרסמי", "העלי", "תפרסמי", "תעלה", "העלה", "שלחי ל"}
+
 
 def _detect_intent(message: str) -> str:
     words = set(message.strip().lower().split())
@@ -44,6 +46,16 @@ def _detect_intent(message: str) -> str:
         return "settings"
 
     msg_lower = message.lower()
+
+    # Natural upload commands — "תעלי סטורי", "פרסמי ריל", etc.
+    if any(v in msg_lower for v in _UPLOAD_VERBS):
+        if any(w in msg_lower for w in {"סטורי", "story", "סטוריז"}):
+            return "create_story"
+        if any(w in msg_lower for w in {"ריל", "reel", "reels"}):
+            return "create_reel"
+        if any(w in msg_lower for w in {"פוסט", "post"}):
+            return "create_post"
+
     if any(p in msg_lower for p in _REMINDER_PHRASES):
         return "reminder"
     if any(p in msg_lower for p in _MONTHLY_PLAN_PHRASES):

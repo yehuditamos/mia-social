@@ -91,10 +91,14 @@ def process_message(phone_number: str, message: str) -> str:
                 image_id = message.split(":", 1)[1]
                 if state.flow == "story_creation":
                     return start_story_flow(user, business, image_id, DEFAULT_LANGUAGE)
-                if state.flow == "accessibility_image_confirm":
-                    pass  # handled below in flow checks
+                if state.flow in ("accessibility_image_confirm", "accessibility_choose_type", "awaiting_image_type"):
+                    pass  # handled in flow checks below
                 elif user.accessibility and not state.flow:
                     return _describe_image_for_blind(user, business, image_id, DEFAULT_LANGUAGE)
+                elif not state.flow:
+                    from src.specialists.memory.engine import update_conversation_flow
+                    update_conversation_flow(user.id, "awaiting_image_type", {"image_id": image_id})
+                    return "קיבלתי 📸 מה תרצי לעשות?\n\n1️⃣ פוסט\n2️⃣ סטורי"
                 else:
                     return start_image_flow(user, business, image_id, DEFAULT_LANGUAGE)
 
@@ -121,6 +125,9 @@ def process_message(phone_number: str, message: str) -> str:
                     return start_reel_flow(user, business, stored_video, DEFAULT_LANGUAGE)
                 return "🎬 מה תרצי לעשות עם הסרטון?\n\n1️⃣ סטורי\n2️⃣ ריל"
 
+            if state.flow == "awaiting_image_type":
+                return _handle_image_type_choice(user, business, message, DEFAULT_LANGUAGE)
+
             if state.flow == "idea_capture":
                 from src.brain.idea_bank import save_idea_from_description
                 return save_idea_from_description(user, business, message)
@@ -140,6 +147,23 @@ def process_message(phone_number: str, message: str) -> str:
         return handle_post_onboarding(user, business, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)
+
+
+def _handle_image_type_choice(user, business, message: str, language: str) -> str:
+    from src.specialists.memory.engine import get_conversation_state, clear_conversation_flow, update_conversation_flow
+
+    state = get_conversation_state(user.id)
+    image_id = (state.flow_data or {}).get("image_id", "") if state else ""
+    msg = message.strip().lower()
+
+    if msg in {"1", "פוסט", "post", "1️⃣"}:
+        clear_conversation_flow(user.id)
+        return start_image_flow(user, business, image_id, language)
+    if msg in {"2", "סטורי", "story", "סטוריז", "2️⃣"}:
+        update_conversation_flow(user.id, "story_creation", {"step": "awaiting_image"})
+        return start_story_flow(user, business, image_id, language)
+
+    return "מה תרצי לעשות עם התמונה?\n\n1️⃣ פוסט\n2️⃣ סטורי"
 
 
 def _handle_accessibility_type_choice(user, business, message: str, language: str) -> str:
