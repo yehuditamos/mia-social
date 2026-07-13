@@ -42,6 +42,15 @@ def verify_webhook():
     return jsonify({"error": "forbidden"}), 403
 
 
+def _handle_instagram_webhook(data: dict) -> None:
+    from src.specialists.notifications.instagram_notify import handle_ig_entry
+    try:
+        for entry in data.get("entry", []):
+            handle_ig_entry(entry)
+    except Exception as e:
+        print(f"[IG WEBHOOK] Error: {repr(e)}")
+
+
 @app.route("/webhook", methods=["POST"])
 def receive_webhook():
     print("CHECKPOINT 1: webhook POST received")
@@ -53,7 +62,12 @@ def receive_webhook():
         print("Raw body:", request.get_data(as_text=True)[:500])
         return jsonify({"status": "received"}), 200
 
-    print("CHECKPOINT 2: JSON parsed OK")
+    obj = data.get("object", "")
+    print("CHECKPOINT 2: JSON parsed OK, object:", obj)
+
+    if obj == "instagram":
+        _handle_instagram_webhook(data)
+        return jsonify({"status": "received"}), 200
 
     try:
         entry = data["entry"][0]

@@ -42,6 +42,15 @@ class SocialAccountRepository:
         )
         print(f"SOCIAL_ACCOUNT DELETE platform={platform} status:", res.status_code)
 
+    def get_by_platform_account_id(self, platform: str, account_id: str):
+        res = requests.get(
+            f"{get_base_url()}/social_accounts",
+            headers=get_headers(),
+            params={"platform": f"eq.{platform}", "platform_account_id": f"eq.{account_id}", "limit": "1"},
+        )
+        data = res.json()
+        return data[0] if isinstance(data, list) and data else None
+
     def upsert(self, business_id: str, platform: str, platform_account_id: str, record: dict) -> None:
         payload = {
             "business_id": business_id,

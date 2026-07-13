@@ -10,7 +10,7 @@ from src.specialists.memory.engine import (
 from src.db.repositories.social_account import SocialAccountRepository
 from src.specialists.conversation.onboarding import STEPS, NUM_STEPS
 
-_DEV_COMMANDS = {"/reset", "/debug", "/state", "/business", "/reconnect_facebook"}
+_DEV_COMMANDS = {"/reset", "/debug", "/state", "/business", "/reconnect_facebook", "/subscribe_ig"}
 
 
 def is_dev_command(message: str) -> bool:
@@ -35,6 +35,8 @@ def handle_dev_command(user: User, message: str) -> str:
         return _cmd_business(user)
     if cmd == "/reconnect_facebook":
         return _cmd_reconnect_facebook(user)
+    if cmd == "/subscribe_ig":
+        return _cmd_subscribe_ig(user)
 
     return "[dev] unknown command"
 
@@ -93,6 +95,38 @@ def _cmd_reconnect_facebook(user: User) -> str:
     )
     url = f"{BASE_URL}/connect/{state}"
     return f"[dev] חשבונות פייסבוק נמחקו. חברי מחדש:\n\n{url}"
+
+
+def _cmd_subscribe_ig(user: User) -> str:
+    import requests as req
+    business = get_business(user.id)
+    if not business:
+        return "[dev] ❌ אין פרופיל עסק."
+
+    accounts = SocialAccountRepository().get_by_business(business.id, platform="instagram")
+    if not accounts:
+        return "[dev] ❌ אין חשבון אינסטגרם מחובר."
+
+    lines = []
+    for acc in accounts:
+        ig_id = acc.get("platform_account_id")
+        token = acc.get("access_token")
+        username = acc.get("account_username", ig_id)
+        try:
+            r = req.post(
+                f"https://graph.facebook.com/v20.0/{ig_id}/subscribed_apps",
+                params={"subscribed_fields": "comments,mentions", "access_token": token},
+                timeout=10,
+            )
+            body = r.json()
+            if body.get("success"):
+                lines.append(f"✅ @{username} — מנוי לתגובות ואזכורים")
+            else:
+                lines.append(f"❌ @{username} — {body}")
+        except Exception as e:
+            lines.append(f"❌ @{username} — {repr(e)}")
+
+    return "[dev] subscribe_ig:\n" + "\n".join(lines)
 
 
 def _cmd_debug(user: User) -> str:
