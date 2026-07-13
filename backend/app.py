@@ -107,8 +107,15 @@ def receive_webhook():
     try:
         parts = reply.split("\n||||\n")
         for part in parts:
-            if part.strip():
-                _send(phone_number, part.strip())
+            p = part.strip()
+            if not p:
+                continue
+            if p.startswith("__send_image__:"):
+                image_url = p[len("__send_image__:"):]
+                from src.whatsapp.client import send_image
+                send_image(phone_number, image_url)
+            else:
+                _send(phone_number, p)
         print("CHECKPOINT 8: send_message called, parts:", len(parts))
     except Exception as e:
         print("CHECKPOINT 8 FAILED: _send error:", repr(e))
