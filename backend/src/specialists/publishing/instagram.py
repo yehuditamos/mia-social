@@ -116,7 +116,8 @@ def publish_story_to_instagram(ig_user_id: str, media_url: str, access_token: st
 
     print(f"[STORY STEP 2] creation_id={creation_id}")
 
-    for attempt in range(6):
+    max_attempts, interval = (24, 5) if media_kind == "video" else (6, 3)
+    for attempt in range(max_attempts):
         status_res = requests.get(
             f"{_GRAPH}/{creation_id}",
             params={"fields": "status_code", "access_token": access_token},
@@ -124,13 +125,13 @@ def publish_story_to_instagram(ig_user_id: str, media_url: str, access_token: st
         )
         status_data = status_res.json()
         status_code = status_data.get("status_code")
-        print(f"[STORY STEP 3] attempt={attempt + 1} status_code={status_code}")
+        print(f"[STORY STEP 3] attempt={attempt + 1}/{max_attempts} status_code={status_code}")
 
         if status_code == "FINISHED":
             break
         if status_code in ("ERROR", "EXPIRED"):
             raise RuntimeError(f"[STORY FAIL step=container_status] {status_data}")
-        time.sleep(3)
+        time.sleep(interval)
     else:
         raise RuntimeError(f"[STORY FAIL] Timed out, last={status_data}")
 
