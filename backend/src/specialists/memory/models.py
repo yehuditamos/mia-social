@@ -19,6 +19,7 @@ class Business:
     writing_language: Optional[str] = None
     writing_style: Optional[str] = None
     communication_preferences: Optional[str] = None
+    goals: Optional[str] = None
 
 
 @dataclass

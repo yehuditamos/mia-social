@@ -110,7 +110,7 @@ def process_message(phone_number: str, message: str) -> str:
                 return handle_reel_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "image_post":
                 return handle_image_flow(user, state, business, message, DEFAULT_LANGUAGE)
-        return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)
+        return handle_post_onboarding(user, business, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)
 

@@ -38,6 +38,14 @@ def poll_all_accounts() -> int:
 
     seen_repo.cleanup_old()
     print(f"[POLLER] Done — {total} new comments notified")
+
+    try:
+        from src.brain.reminder_handler import send_due_reminders
+        sent = send_due_reminders()
+        print(f"[POLLER] {sent} reminder(s) sent")
+    except Exception as e:
+        print(f"[POLLER] reminder check error: {repr(e)}")
+
     return total
 
 

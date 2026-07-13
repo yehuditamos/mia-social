@@ -71,6 +71,7 @@ def get_business(user_id: str) -> Optional[Business]:
             writing_language=d.get("writing_language"),
             writing_style=d.get("writing_style"),
             communication_preferences=d.get("communication_preferences"),
+            goals=d.get("goals"),
         )
     except Exception:
         return None
