@@ -211,8 +211,7 @@ def _handle_approval(user: User, state: ConversationState, business: Business,
     return "לא הבנתי 😊\nכתבי:\n✅ כן — לפרסם\n❌ ביטול"
 
 
-def _apply_and_upload(image_url: str, caption: str, filter_name: str,
-                      brand_frame: bool, brand_name: str) -> str | None:
+def _apply_and_upload(image_url, caption, filter_name, brand_frame, brand_name):
     if not image_url:
         return None
     try:
