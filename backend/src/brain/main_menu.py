@@ -34,6 +34,7 @@ def handle_post_onboarding(user: User, message: str, language: str = "he") -> st
         update_conversation_flow(user.id, "story_creation", {"step": "awaiting_image"})
         return get_string("menu_create_story", language=language)
     if intent == "create_reel":
+        update_conversation_flow(user.id, "reel_creation", {"step": "awaiting_video"})
         return get_string("menu_create_reel", language=language)
     if intent == "accessibility":
         return get_string("menu_accessibility", language=language)

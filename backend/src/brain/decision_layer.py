@@ -14,6 +14,7 @@ from src.brain.main_menu import handle_post_onboarding
 from src.brain.post_flow import handle_post_flow
 from src.brain.story_flow import handle_story_flow, start_story_flow
 from src.brain.image_flow import handle_image_flow, start_image_flow
+from src.brain.reel_flow import handle_reel_flow, start_reel_flow
 from src.brain.dev_commands import is_dev_command, handle_dev_command
 from src.db.repositories.social_account import SocialAccountRepository
 from src.db.repositories.auth_session import AuthSessionRepository
@@ -82,12 +83,31 @@ def process_message(phone_number: str, message: str) -> str:
                 video_id = message.split(":", 1)[1]
                 if state.flow == "story_creation":
                     return start_story_flow(user, business, video_id, DEFAULT_LANGUAGE)
-                return "סרטונים זמינים כרגע לסטורי בלבד 🎬\nשלחי '2' ואז שלחי את הסרטון."
+                if state.flow == "reel_creation":
+                    return start_reel_flow(user, business, video_id, DEFAULT_LANGUAGE)
+                from src.specialists.memory.engine import update_conversation_flow
+                update_conversation_flow(user.id, "awaiting_video_type", {"video_id": video_id})
+                return "🎬 מה תרצי לעשות עם הסרטון?\n\n1️⃣ סטורי\n2️⃣ ריל"
+
+            if state.flow == "awaiting_video_type":
+                msg = message.strip()
+                stored_video = (state.flow_data or {}).get("video_id", "")
+                if msg in {"1", "סטורי", "story", "1️⃣"}:
+                    from src.specialists.memory.engine import update_conversation_flow
+                    update_conversation_flow(user.id, "story_creation", {"step": "awaiting_image"})
+                    return start_story_flow(user, business, stored_video, DEFAULT_LANGUAGE)
+                if msg in {"2", "ריל", "reel", "2️⃣"}:
+                    from src.specialists.memory.engine import update_conversation_flow
+                    update_conversation_flow(user.id, "reel_creation", {"step": "awaiting_video"})
+                    return start_reel_flow(user, business, stored_video, DEFAULT_LANGUAGE)
+                return "🎬 מה תרצי לעשות עם הסרטון?\n\n1️⃣ סטורי\n2️⃣ ריל"
 
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "story_creation":
                 return handle_story_flow(user, state, business, message, DEFAULT_LANGUAGE)
+            if state.flow == "reel_creation":
+                return handle_reel_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "image_post":
                 return handle_image_flow(user, state, business, message, DEFAULT_LANGUAGE)
         return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)

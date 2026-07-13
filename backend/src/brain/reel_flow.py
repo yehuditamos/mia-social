@@ -1,0 +1,127 @@
+from personality.loader import get_string
+from src.specialists.memory.models import User, Business, ConversationState
+from src.specialists.memory.engine import update_conversation_flow, clear_conversation_flow, get_business
+from src.db.repositories.social_account import SocialAccountRepository
+
+_APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "✅", "אישור", "מאשרת", "מאשר", "פרסמי", "פרסם"}
+_CANCEL  = {"לא", "בטל", "ביטול", "בטלי", "❌", "no", "cancel"}
+_SKIP    = {"דלגי", "דלג", "בלי", "ללא", "skip"}
+
+
+def start_reel_flow(user: User, business: Business, video_id: str, language: str) -> str:
+    from src.whatsapp.media import download_media
+    from src.db.storage import upload_image
+
+    media_url = None
+    try:
+        media_b64, mime_type = download_media(video_id)
+        if not mime_type.startswith("video/"):
+            clear_conversation_flow(user.id)
+            return "ריל צריך להיות סרטון 🎬\nשלחי סרטון ואנסה שוב."
+        media_url = upload_image(media_b64, mime_type, video_id)
+        print(f"[REEL] uploaded url={media_url}")
+    except Exception as e:
+        print(f"[REEL FAIL upload] {repr(e)}")
+
+    if not media_url:
+        clear_conversation_flow(user.id)
+        return "מצטערת, לא הצלחתי לשמור את הסרטון. שלחי מחדש 🙏"
+
+    update_conversation_flow(user.id, "reel_creation", {
+        "step": "awaiting_caption",
+        "video_url": media_url,
+    })
+    return (
+        "ראיתי את הסרטון 🎬\n\n"
+        "תרצי להוסיף כיתוב לריל?\n"
+        "✍️ כתבי את הכיתוב\n"
+        "⏭️ דלגי — לפרסם בלי כיתוב"
+    )
+
+
+def handle_reel_flow(user: User, state: ConversationState, business: Business,
+                     message: str, language: str) -> str:
+    step = (state.flow_data or {}).get("step", "awaiting_video")
+
+    if step == "awaiting_video":
+        return "שלחי סרטון לריל 🎬"
+    if step == "awaiting_caption":
+        return _handle_caption(user, state, message)
+    if step == "awaiting_approval":
+        return _handle_approval(user, state, message, language)
+
+    clear_conversation_flow(user.id)
+    return get_string("main_menu", language=language, name=user.name or "")
+
+
+def _handle_caption(user: User, state: ConversationState, message: str) -> str:
+    flow_data = state.flow_data or {}
+    msg = message.strip()
+    caption = None if msg.lower() in _SKIP else msg
+
+    caption_preview = f"📝 כיתוב: \"{caption}\"" if caption else "📝 ללא כיתוב"
+    update_conversation_flow(user.id, "reel_creation", {
+        **flow_data,
+        "step": "awaiting_approval",
+        "caption": caption,
+    })
+    return (
+        f"הנה פרטי הריל:\n\n"
+        f"🎬 סרטון מוכן\n"
+        f"{caption_preview}\n\n"
+        f"לפרסם?\n✅ כן\n❌ ביטול"
+    )
+
+
+def _handle_approval(user: User, state: ConversationState,
+                     message: str, language: str) -> str:
+    msg = message.strip().lower()
+    flow_data = state.flow_data or {}
+
+    if msg in _CANCEL:
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלתי את הריל 🙂"
+
+    if any(word in msg for word in _APPROVE) or msg in _APPROVE:
+        return _publish(user, flow_data, language)
+
+    return "לא הבנתי 😊\n✅ כן — לפרסם\n❌ ביטול"
+
+
+def _publish(user: User, flow_data: dict, language: str) -> str:
+    from src.specialists.publishing.instagram import publish_reel_to_instagram
+
+    video_url = flow_data.get("video_url")
+    caption = flow_data.get("caption") or ""
+
+    if not video_url:
+        clear_conversation_flow(user.id)
+        return "מצטערת, הסרטון לא זמין. שלחי מחדש."
+
+    business = get_business(user.id)
+    if not business:
+        clear_conversation_flow(user.id)
+        return get_string("post_no_accounts", language=language)
+
+    ig_accounts = [
+        a for a in SocialAccountRepository().get_by_business(business.id)
+        if a.get("platform") == "instagram"
+    ]
+    if not ig_accounts:
+        clear_conversation_flow(user.id)
+        return get_string("post_no_accounts", language=language)
+
+    ig = ig_accounts[0]
+    clear_conversation_flow(user.id)
+
+    try:
+        publish_reel_to_instagram(
+            ig.get("platform_account_id"),
+            video_url,
+            caption,
+            ig.get("access_token"),
+        )
+        return "✅ הריל פורסם בהצלחה! 🎬"
+    except Exception as e:
+        print(f"[REEL PUBLISH ERROR] {repr(e)}")
+        return "אופס, לא הצלחתי לפרסם את הריל. בדקי שהחשבון מחובר ונסי שוב."

@@ -153,6 +153,69 @@ def publish_story_to_instagram(ig_user_id: str, media_url: str, access_token: st
     print(f"[STORY SUCCESS] story_id={data2.get('id')}")
 
 
+def publish_reel_to_instagram(ig_user_id: str, video_url: str,
+                              caption: str, access_token: str) -> None:
+    print(f"[REEL STEP 1] ig_user_id={ig_user_id} url={video_url}")
+
+    res1 = requests.post(
+        f"{_GRAPH}/{ig_user_id}/media",
+        data={
+            "media_type": "REELS",
+            "video_url": video_url,
+            "caption": caption,
+            "share_to_feed": "true",
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    print(f"[REEL STEP 2] container status={res1.status_code} body={res1.text[:200]}")
+    data1 = res1.json()
+
+    if "error" in data1:
+        raise RuntimeError(
+            f"[REEL FAIL container] code={data1['error'].get('code')} "
+            f"message={data1['error'].get('message')}"
+        )
+
+    creation_id = data1.get("id")
+    if not creation_id:
+        raise RuntimeError(f"[REEL FAIL] No id in response: {data1}")
+
+    print(f"[REEL STEP 3] creation_id={creation_id} — polling...")
+    for attempt in range(30):
+        status_res = requests.get(
+            f"{_GRAPH}/{creation_id}",
+            params={"fields": "status_code", "access_token": access_token},
+            timeout=15,
+        )
+        status_data = status_res.json()
+        status_code = status_data.get("status_code")
+        print(f"[REEL POLL] attempt={attempt+1}/30 status={status_code}")
+
+        if status_code == "FINISHED":
+            break
+        if status_code in ("ERROR", "EXPIRED"):
+            raise RuntimeError(f"[REEL FAIL poll] {status_data}")
+        time.sleep(5)
+    else:
+        raise RuntimeError(f"[REEL FAIL] Timed out, last={status_data}")
+
+    res2 = requests.post(
+        f"{_GRAPH}/{ig_user_id}/media_publish",
+        data={"creation_id": creation_id, "access_token": access_token},
+        timeout=30,
+    )
+    print(f"[REEL STEP 4] publish status={res2.status_code} body={res2.text[:200]}")
+    data2 = res2.json()
+
+    if "error" in data2:
+        raise RuntimeError(
+            f"[REEL FAIL publish] code={data2['error'].get('code')} "
+            f"message={data2['error'].get('message')}"
+        )
+    print(f"[REEL SUCCESS] reel_id={data2.get('id')}")
+
+
 def reply_to_ig_comment(comment_id: str, text: str, access_token: str) -> None:
     res = requests.post(
         f"{_GRAPH}/{comment_id}/replies",
