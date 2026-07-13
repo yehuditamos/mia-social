@@ -24,15 +24,27 @@ def _handle_comment(ig_user_id: str, value: dict) -> None:
         print(f"[IG NOTIFY] No user for ig_user_id={ig_user_id}")
         return
 
+    comment_id = value.get("id", "")
     username = value.get("from", {}).get("username", "מישהי")
     text = value.get("text", "")
     media_type = value.get("media", {}).get("media_product_type", "POST")
     type_label = "סטורי" if media_type == "STORY" else "פוסט"
 
-    msg = f"💬 תגובה חדשה על ה{type_label} שלך!\n\n@{username} כתב:\n\"{text}\""
+    msg = (
+        f"💬 תגובה חדשה על ה{type_label} שלך!\n\n"
+        f"@{username} כתב:\n\"{text}\"\n\n"
+        f"↩️ לענות — שלחי: ענה [ההודעה שלך]"
+    )
 
     from src.whatsapp.client import send_message
     send_message(phone, msg)
+
+    if comment_id:
+        access_token = _get_access_token_by_ig_user(ig_user_id)
+        if access_token:
+            from src.db.repositories.pending_ig_reply import PendingIgReplyRepository
+            PendingIgReplyRepository().store(phone, comment_id, ig_user_id, access_token)
+
     print(f"[IG NOTIFY] Comment notification sent to {phone} from @{username}")
 
 

@@ -67,6 +67,11 @@ def process_message(phone_number: str, message: str) -> str:
                 print(f"POST_ONBOARDING: sending connect URL={oauth_url}")
                 return get_string("connect_accounts_prompt", language=DEFAULT_LANGUAGE, oauth_url=oauth_url)
 
+            if message.strip().startswith("ענה"):
+                rest = message.strip()[3:].lstrip(" :,")
+                if rest:
+                    return _handle_ig_reply(user, rest)
+
             if message.startswith("__image__:"):
                 image_id = message.split(":", 1)[1]
                 if state.flow == "story_creation":
@@ -88,3 +93,22 @@ def process_message(phone_number: str, message: str) -> str:
         return handle_post_onboarding(user, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)
+
+
+def _handle_ig_reply(user, text: str) -> str:
+    from src.db.repositories.pending_ig_reply import PendingIgReplyRepository
+    from src.specialists.publishing.instagram import reply_to_ig_comment
+
+    pending = PendingIgReplyRepository().get_and_clear(user.phone_number)
+    if not pending:
+        return (
+            "לא נמצאה תגובה ממתינה 🙁\n"
+            "ייתכן שעברה יותר משעה מאז ההתראה, או שעדיין לא הגיעה תגובה."
+        )
+
+    try:
+        reply_to_ig_comment(pending["comment_id"], text, pending["access_token"])
+        return "✅ המענה פורסם באינסטגרם!"
+    except Exception as e:
+        print(f"[IG REPLY ERROR] {repr(e)}")
+        return "אופס, לא הצלחתי לפרסם את המענה. בדקי שהחשבון מחובר ונסי שוב."

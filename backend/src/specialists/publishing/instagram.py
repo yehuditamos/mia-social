@@ -151,3 +151,19 @@ def publish_story_to_instagram(ig_user_id: str, media_url: str, access_token: st
         )
 
     print(f"[STORY SUCCESS] story_id={data2.get('id')}")
+
+
+def reply_to_ig_comment(comment_id: str, text: str, access_token: str) -> None:
+    res = requests.post(
+        f"{_GRAPH}/{comment_id}/replies",
+        data={"message": text, "access_token": access_token},
+        timeout=15,
+    )
+    data = res.json()
+    print(f"[IG REPLY] status={res.status_code} body={res.text[:200]}")
+    if "error" in data:
+        raise RuntimeError(
+            f"[IG REPLY FAIL] code={data['error'].get('code')} "
+            f"message={data['error'].get('message')}"
+        )
+    print(f"[IG REPLY SUCCESS] reply_id={data.get('id')}")
