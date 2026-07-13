@@ -176,11 +176,12 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
     access_token = ig.get("access_token")
     print(f"[IG PUBLISH] ig_user_id={ig_user_id} token_present={bool(access_token)}")
 
+    # Clear flow BEFORE polling — prevents duplicate webhooks from re-triggering publish
+    clear_conversation_flow(user.id)
+
     try:
         post_url = publish_image_to_instagram(ig_user_id, image_url, caption, access_token)
-        clear_conversation_flow(user.id)
         return get_string("post_published", language=language, post_url=post_url)
     except Exception as e:
         print(f"[IG PUBLISH ERROR] {repr(e)}")
-        clear_conversation_flow(user.id)
         return get_string("post_publish_error", language=language)

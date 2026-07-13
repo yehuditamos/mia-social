@@ -141,6 +141,10 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
         return get_string("post_no_accounts", language=language)
 
     ig = ig_accounts[0]
+
+    # Clear flow BEFORE polling — prevents duplicate webhooks from re-triggering publish
+    clear_conversation_flow(user.id)
+
     try:
         publish_story_to_instagram(
             ig.get("platform_account_id"),
@@ -148,10 +152,8 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
             ig.get("access_token"),
             media_kind=media_kind,
         )
-        clear_conversation_flow(user.id)
         emoji = "🎬" if media_kind == "video" else "📸"
         return f"✅ הסטורי פורסם בהצלחה! {emoji}"
     except Exception as e:
         print(f"[STORY PUBLISH ERROR] {repr(e)}")
-        clear_conversation_flow(user.id)
         return "אופס, לא הצלחתי לפרסם את הסטורי. בדקי שהחשבון מחובר ונסי שוב."
