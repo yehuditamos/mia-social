@@ -127,6 +127,8 @@ def process_message(phone_number: str, message: str) -> str:
 
             if state.flow == "accessibility_image_confirm":
                 return _handle_accessibility_confirm(user, business, message, DEFAULT_LANGUAGE)
+            if state.flow == "accessibility_choose_type":
+                return _handle_accessibility_type_choice(user, business, message, DEFAULT_LANGUAGE)
             if state.flow == "post_creation":
                 return handle_post_flow(user, state, business, message, DEFAULT_LANGUAGE)
             if state.flow == "story_creation":
@@ -138,6 +140,23 @@ def process_message(phone_number: str, message: str) -> str:
         return handle_post_onboarding(user, business, message, DEFAULT_LANGUAGE)
 
     return route(user, state, message, DEFAULT_LANGUAGE)
+
+
+def _handle_accessibility_type_choice(user, business, message: str, language: str) -> str:
+    from src.specialists.memory.engine import get_conversation_state, clear_conversation_flow, update_conversation_flow
+
+    state = get_conversation_state(user.id)
+    image_id = (state.flow_data or {}).get("image_id", "") if state else ""
+    msg = message.strip().lower()
+
+    if msg in {"1", "פוסט", "1️⃣"}:
+        clear_conversation_flow(user.id)
+        return start_image_flow(user, business, image_id, language)
+    if msg in {"2", "סטורי", "story", "סטוריז", "2️⃣"}:
+        update_conversation_flow(user.id, "story_creation", {"step": "awaiting_image"})
+        return start_story_flow(user, business, image_id, language)
+
+    return "מה תרצי לעשות עם התמונה?\n\n1️⃣ פוסט\n2️⃣ סטורי"
 
 
 def _describe_image_for_blind(user, business, image_id: str, language: str) -> str:
@@ -167,9 +186,11 @@ def _handle_accessibility_confirm(user, business, message: str, language: str) -
     _CANCEL = {"לא", "no", "❌", "לא זה", "אחרת", "שגוי"}
 
     if msg in _CONFIRM or any(w in msg for w in {"כן", "yes", "נכון", "בדיוק"}):
-        clear_conversation_flow(user.id)
         if image_id:
-            return start_image_flow(user, business, image_id, language)
+            from src.specialists.memory.engine import update_conversation_flow
+            update_conversation_flow(user.id, "accessibility_choose_type", {"image_id": image_id})
+            return "מה תרצי לעשות עם התמונה?\n\n1️⃣ פוסט\n2️⃣ סטורי"
+        clear_conversation_flow(user.id)
         return "בסדר, שלחי את התמונה שוב 💜"
 
     clear_conversation_flow(user.id)
