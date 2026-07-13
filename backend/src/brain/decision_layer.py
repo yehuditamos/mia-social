@@ -12,7 +12,7 @@ from src.specialists.conversation.onboarding import NUM_STEPS
 from src.brain.router import route
 from src.brain.main_menu import handle_post_onboarding
 from src.brain.post_flow import handle_post_flow
-from src.brain.story_flow import handle_story_flow
+from src.brain.story_flow import handle_story_flow, start_story_flow
 from src.brain.image_flow import handle_image_flow, start_image_flow
 from src.brain.dev_commands import is_dev_command, handle_dev_command
 from src.db.repositories.social_account import SocialAccountRepository
@@ -69,6 +69,8 @@ def process_message(phone_number: str, message: str) -> str:
 
             if message.startswith("__image__:"):
                 image_id = message.split(":", 1)[1]
+                if state.flow == "story_creation":
+                    return start_story_flow(user, business, image_id, DEFAULT_LANGUAGE)
                 return start_image_flow(user, business, image_id, DEFAULT_LANGUAGE)
 
             if state.flow == "post_creation":
