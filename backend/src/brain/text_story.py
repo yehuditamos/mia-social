@@ -25,15 +25,19 @@ def create_text_story_image(text: str, bg_color: str = "black") -> bytes:
 
     font, lines = _pick_font_and_lines(draw, text)
 
-    # Use actual font metrics for reliable line height
     try:
-        ascent, descent = font.getmetrics()
-        line_h = int((ascent + descent) * 1.35)
+        font_size = font.size
     except Exception:
-        try:
-            line_h = int(font.size * 1.45)
-        except Exception:
-            line_h = 50
+        font_size = 80
+    line_h = int(font_size * 1.5)
+
+    print(f"[TEXT STORY] font_size={font_size} num_lines={len(lines)} line_h={line_h}")
+    for i, l in enumerate(lines):
+        print(f"[TEXT STORY] line[{i}]: {l[:40]!r}")
+
+    # python-bidi with base_dir='R' builds lines with the last logical words first;
+    # reverse so that the first words of the sentence appear at the top of the image
+    lines = list(reversed(lines))
 
     total_h = len(lines) * line_h
     y = (_H - total_h) // 2
