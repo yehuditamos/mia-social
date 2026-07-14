@@ -94,6 +94,14 @@ def process_message(phone_number: str, message: str) -> str:
                     return start_story_flow(user, business, image_id, DEFAULT_LANGUAGE)
                 if state.flow in ("accessibility_image_confirm", "accessibility_choose_type", "awaiting_image_type"):
                     pass  # handled in flow checks below
+                elif state.flow == "carousel_creation":
+                    # Text-only carousel — don't interrupt with image flow
+                    from src.brain.workflow_engine import active_task_reminder
+                    step = (state.flow_data or {}).get("step", "awaiting_mode")
+                    return (
+                        "קרוסלה טקסטית לא צריכה תמונה.\n\n"
+                        + active_task_reminder("carousel_creation", step)
+                    )
                 elif user.accessibility and not state.flow:
                     return _describe_image_for_blind(user, business, image_id, DEFAULT_LANGUAGE)
                 elif not state.flow:
@@ -109,6 +117,13 @@ def process_message(phone_number: str, message: str) -> str:
                     return start_story_flow(user, business, video_id, DEFAULT_LANGUAGE)
                 if state.flow == "reel_creation":
                     return start_reel_flow(user, business, video_id, DEFAULT_LANGUAGE)
+                if state.flow == "carousel_creation":
+                    from src.brain.workflow_engine import active_task_reminder
+                    step = (state.flow_data or {}).get("step", "awaiting_mode")
+                    return (
+                        "קרוסלה טקסטית לא משתמשת בסרטונים.\n\n"
+                        + active_task_reminder("carousel_creation", step)
+                    )
                 from src.specialists.memory.engine import update_conversation_flow
                 update_conversation_flow(user.id, "awaiting_video_type", {"video_id": video_id})
                 return "🎬 מה תרצי לעשות עם הסרטון?\n\n1️⃣ סטורי\n2️⃣ ריל"

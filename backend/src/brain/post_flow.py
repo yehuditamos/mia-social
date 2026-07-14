@@ -130,14 +130,25 @@ def _handle_proofread_approval(user: User, state: ConversationState, business: B
         })
         return get_string("post_preview", language=language, caption=original)
 
-    # Edit manually
-    if any(w in msg for w in {"ערכי", "ערוך", "✏️", "edit", "שינוי", "שני", "שנה"}):
+    # Edit manually — also catches "תתקני", "שפרי" etc.
+    if any(w in msg for w in {"ערכי", "ערוך", "✏️", "edit", "שינוי", "שני", "שנה",
+                               "תתקני", "תקני", "שפרי", "לתקן", "לערוך"}):
         update_conversation_flow(user.id, "post_creation", {
             **flow_data,
             "step": "awaiting_edit",
             "caption": corrected,
         })
         return get_string("post_ask_edit", language=language)
+
+    # User rewrote text directly — use it as new caption
+    if len(message.strip()) > 20:
+        new_caption = message.strip()
+        update_conversation_flow(user.id, "post_creation", {
+            **flow_data,
+            "step": "awaiting_approval",
+            "caption": new_caption,
+        })
+        return get_string("post_preview", language=language, caption=new_caption)
 
     return _PROOFREAD_OPTIONS
 
