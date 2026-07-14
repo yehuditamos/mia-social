@@ -206,38 +206,30 @@ def _handle_idea_status(user, data: dict, business, msg: str) -> str:
     # User has their own text → ask them to send it
     if _wants_to_send_own_text(msg):
         update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
-        return (
-            "מעולה! 📝\n\n"
-            "שלחי לי בהודעה אחת:\n"
-            "1. את הטקסט לקרוסלה\n"
-            "2. איך תרצי שתיראה (לדוג׳ *רקע שחור* / *רקע לבן*)\n\n"
-            "אם אין העדפת עיצוב — אעלה עם רקע שחור."
-        )
+        return "מעולה! 📝 שלחי לי את הטקסט לקרוסלה:"
 
     has_idea = bool(words & _HAS_IDEA_WORDS) or any(
         p in ml for p in {"חשבתי על", "יש לי רעיון", "יש רעיון", "כן יש"}
     )
 
     if has_idea:
-        # Check if they also embedded the topic/text in the same message
+        # Check if they also embedded the topic/text in the same message.
+        # Require at least 2 words to avoid treating "רעיון" or "נושא" alone as a topic.
+        _GENERIC_IDEA_WORDS = {"רעיון", "נושא", "תוכן", "כן", "משהו", "זה", "idea"}
         for strip_phrase in ["חשבתי על ", "יש לי רעיון על ", "רעיון: ", "הנה: ", "על "]:
             if strip_phrase in ml:
                 remaining = msg[ml.index(strip_phrase) + len(strip_phrase):].strip()
-                # Only use as inline topic if it's clearly a topic (short, not their text)
-                if 3 <= len(remaining) <= 60 and not _wants_to_send_own_text(remaining):
+                if (3 <= len(remaining) <= 60
+                        and len(remaining.split()) >= 2
+                        and remaining.strip().lower() not in _GENERIC_IDEA_WORDS
+                        and not _wants_to_send_own_text(remaining)):
                     update_conversation_flow(user.id, "carousel_creation", {
                         **data, "step": "awaiting_content"
                     })
                     return _process_content(user, data, business, remaining)
 
         update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
-        return (
-            "מעולה! 📝\n\n"
-            "שלחי לי בהודעה אחת:\n"
-            "1. את הטקסט לקרוסלה\n"
-            "2. איך תרצי שתיראה (לדוג׳ *רקע שחור* / *רקע לבן*)\n\n"
-            "אם אין העדפת עיצוב — אעלה עם רקע שחור."
-        )
+        return "מעולה! 📝 שלחי לי את הטקסט לקרוסלה:"
 
     # No clear signal → treat the message as content/topic directly
     update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
@@ -256,13 +248,7 @@ def _handle_idea_pick(user, data: dict, business, msg: str) -> str:
     # "I have my own text" → ask them to send it
     if _wants_to_send_own_text(msg):
         update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
-        return (
-            "מעולה! 📝\n\n"
-            "שלחי לי בהודעה אחת:\n"
-            "1. את הטקסט לקרוסלה\n"
-            "2. סגנון עיצוב (לדוג׳ *רקע שחור* / *רקע לבן*)\n\n"
-            "אם אין העדפה — אעלה עם רקע שחור."
-        )
+        return "מעולה! 📝 שלחי לי את הטקסט לקרוסלה:"
 
     ideas = data.get("ideas", [])
     _NUM = {"1": 0, "2": 1, "3": 2, "1️⃣": 0, "2️⃣": 1, "3️⃣": 2}
@@ -474,6 +460,18 @@ def _handle_approval(user, data: dict, business, msg: str) -> str:
     if not slides:
         clear_conversation_flow(user.id)
         return "אירעה שגיאה — אנא שלחי *פוסט* להתחלה מחדש."
+
+    # ── User rejects generated content → let them send their own text ────────────
+    _WRONG_CONTENT = (
+        "לא הטקסט שלי", "זה לא הטקסט", "לא מה שכתבתי",
+        "לא כתבתי את זה", "אני רוצה הטקסט שלי", "תוכן אחר", "לא רוצה את זה",
+    )
+    ml_msg = msg.strip().lower()
+    if any(p in ml_msg for p in _WRONG_CONTENT):
+        update_conversation_flow(user.id, "carousel_creation", {
+            **data, "step": "awaiting_content"
+        })
+        return "מצטערת! שלחי לי את הטקסט שלך ואני אסדר אותו לקרוסלה:"
 
     # ── Color → publish ────────────────────────────────────────────────────────
     color = detect_color_preference(msg)
