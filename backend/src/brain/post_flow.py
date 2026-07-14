@@ -4,6 +4,7 @@ from src.specialists.memory.engine import update_conversation_flow, clear_conver
 from src.specialists.publishing.caption_generator import generate_caption
 from src.specialists.publishing.facebook import publish_text_post
 from src.db.repositories.social_account import SocialAccountRepository
+from src.brain.workflow_engine import NOTEBOOK_RESET
 
 _APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "✅", "אישור", "מאשרת", "מאשר", "לפרסם"}
 _CANCEL = {"לא", "בטל", "ביטול", "בטלי", "❌", "no", "cancel"}
@@ -74,7 +75,6 @@ def _handle_topic(user: User, business: Business, topic: str, language: str) -> 
         )
     except Exception as e:
         print("CAPTION ERROR:", repr(e))
-        clear_conversation_flow(user.id)
         return get_string("post_caption_error", language=language)
 
     update_conversation_flow(user.id, "post_creation", {
@@ -248,11 +248,10 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
     except Exception as e:
         error_str = str(e)
         print(f"[PUBLISH ERROR] {error_str}")
-        clear_conversation_flow(user.id)
-        return _friendly_meta_error(error_str)
+        return _friendly_meta_error(error_str) + "\n\n💾 הפוסט נשמר — שלחי *כן* לנסות שוב."
 
     clear_conversation_flow(user.id)
-    return get_string("post_published", language=language, post_url=post_url)
+    return get_string("post_published", language=language, post_url=post_url) + NOTEBOOK_RESET
 
 
 def _friendly_meta_error(error_str: str) -> str:

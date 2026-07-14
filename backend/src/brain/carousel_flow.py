@@ -417,22 +417,24 @@ def _process_content(user, data: dict, business, msg: str) -> str:
         )
 
     update_conversation_flow(user.id, "carousel_creation", {
-        "step":       "awaiting_approval",
-        "slides":     all_slides,
-        "body_text":  msg,
-        "hooks":      hooks,
-        "ctas":       ctas,
-        "topic":      msg if is_topic else "",
-        "color_pref": color_pref,
+        "step":               "awaiting_approval",
+        "slides":             all_slides,
+        "body_text":          msg,
+        "original_user_text": msg if not is_topic else "",
+        "hooks":              hooks,
+        "ctas":               ctas,
+        "topic":              msg if is_topic else "",
+        "color_pref":         color_pref,
     })
 
     # Execution Point reached + color already known → publish immediately, no more questions
     if color_pref:
         return _publish(user, business, all_slides, color_pref)
 
+    proofread_note = "\n\n✏️ הגהה בלבד — שמרתי על הטקסט שלך" if not is_topic else ""
     preview = _format_structure_preview(all_slides)
     return (
-        f"הקרוסלה מוכנה ({len(all_slides)} דפים):\n\n"
+        f"הקרוסלה מוכנה ({len(all_slides)} דפים):{proofread_note}\n\n"
         f"{preview}\n\n"
         "⬛ פרסמי (רקע שחור)\n"
         "⬜ פרסמי עם רקע לבן\n"
@@ -597,8 +599,6 @@ def _publish(user, business, slides: list, color: str) -> str:
     from src.specialists.publishing.instagram import publish_carousel_to_instagram
     from src.brain.carousel_image import generate_slide_and_upload
 
-    clear_conversation_flow(user.id)
-
     if not business:
         return "לא נמצא עסק מחובר."
 
@@ -623,16 +623,20 @@ def _publish(user, business, slides: list, color: str) -> str:
 
         caption  = slides[0] if slides else ""
         post_url = publish_carousel_to_instagram(ig_user_id, slide_urls, caption, access_token)
+
+        clear_conversation_flow(user.id)
         icon     = "⬛" if color == "black" else "⬜"
         return f"✅ הקרוסלה פורסמה {icon}\n\n{post_url}" + NOTEBOOK_RESET
     except Exception as e:
         err = str(e)
         print(f"[CAROUSEL_FLOW] publish error: {repr(e)}")
         if "190" in err or "expired" in err.lower():
-            return "פג תוקף החיבור לאינסטגרם — חברי מחדש."
+            return "⚠️ הטוקן פג תוקף — חברי מחדש.\n\n💾 הקרוסלה נשמרה — שלחי *פרסמי* לנסות שוב לאחר חיבור."
         if "200" in err or "permission" in err.lower():
-            return "חסרות הרשאות פרסום — בדקי שהחשבון מחובר כראוי."
-        return f"לא הצלחתי לפרסם — נסי שוב.\n\n({err[:80]})"
+            return "⚠️ חסרות הרשאות פרסום.\n\n💾 הקרוסלה נשמרה — שלחי 'חברי חשבונות' ולאחר מכן *פרסמי*."
+        if "container" in err.lower() or "media" in err.lower():
+            return f"⚠️ שגיאה בהכנת הסליידים:\n\n{err[:150]}\n\n💾 הקרוסלה נשמרה — שלחי *פרסמי* לנסות שוב."
+        return f"⚠️ הפרסום נכשל:\n\n{err[:150]}\n\n💾 הקרוסלה נשמרה — שלחי *פרסמי* לנסות שוב."
 
 
 def _save_draft(user) -> str:
@@ -721,8 +725,6 @@ def _publish_image_carousel(user, business, slides: list, image_urls: list) -> s
     from src.db.repositories.social_account import SocialAccountRepository
     from src.specialists.publishing.instagram import publish_carousel_to_instagram
 
-    clear_conversation_flow(user.id)
-
     if not business:
         return "לא נמצא עסק מחובר."
 
@@ -740,13 +742,14 @@ def _publish_image_carousel(user, business, slides: list, image_urls: list) -> s
     try:
         caption  = slides[0] if slides else ""
         post_url = publish_carousel_to_instagram(ig_user_id, image_urls, caption, access_token)
+        clear_conversation_flow(user.id)
         return f"✅ קרוסלת התמונות פורסמה! 🖼️\n\n{post_url}" + NOTEBOOK_RESET
     except Exception as e:
         err = str(e)
         print(f"[CAROUSEL_IMG_PUBLISH] error: {repr(e)}")
         if "190" in err or "expired" in err.lower():
-            return "פג תוקף החיבור לאינסטגרם — חברי מחדש."
-        return f"לא הצלחתי לפרסם — נסי שוב.\n\n({err[:80]})"
+            return "⚠️ הטוקן פג תוקף — חברי מחדש.\n\n💾 הקרוסלה נשמרה — שלחי *פרסמי* לנסות שוב לאחר חיבור."
+        return f"⚠️ הפרסום נכשל:\n\n{err[:150]}\n\n💾 הקרוסלה נשמרה — שלחי *פרסמי* לנסות שוב."
 
 
 # ─── Claude: single combined call ──────────────────────────────────────────────
@@ -765,9 +768,19 @@ def _generate_all(content: str, is_topic: bool, brand: str,
         # Proofread + use as base
         input_desc = f"בסס את הקרוסלה על הטקסט הזה:\n{content[:600]}"
 
+    if is_topic:
+        mode_rule = ""
+    else:
+        mode_rule = (
+            "\n\n⚠️ כלל קריטי — הגהה בלבד:\n"
+            "שמרי על התוכן המקורי של הטקסט בדיוק. "
+            "מותר: תיקון כתיב, תחביר, פיסוק, התאמת מגדר. "
+            "אסור: שינוי רעיונות, הוספת תוכן חדש, מחיקת מסרים, שכתוב."
+        )
+
     system = (
         f"מנהלת סושיאל לעסק {brand} ({what_do}). סגנון: {style}.\n\n"
-        f"{input_desc}\n\n"
+        f"{input_desc}{mode_rule}\n\n"
         "החזירי JSON בפורמט הזה בדיוק:\n"
         '{"slides":["תוכן דף פנימי 1","תוכן דף פנימי 2"],'
         '"hooks":["כותרת 1","כותרת 2","כותרת 3"],'
@@ -776,6 +789,8 @@ def _generate_all(content: str, is_topic: bool, brand: str,
         "- slides: 2-4 דפי גוף בלבד (לא כולל כותרת פתיחה ולא הנעה לפעולה!), כל דף עד 15 מילים\n"
         "- hooks: בדיוק 3 כותרות פתיחה, מושכות תשומת לב, עד 8 מילים\n"
         "- ctas: בדיוק 3 הנעות לפעולה, עד 8 מילים\n"
+        "- עברית ישראלית תקנית: 'שלושה שבועות' לא 'שלוש שבועות', 'ממה' לא 'מאשר מה'\n"
+        "- פנייה בלשון נקבה יחיד: 'את', 'תרצי', 'שלך'\n"
         "- JSON בלבד, ללא טקסט נוסף"
     )
 

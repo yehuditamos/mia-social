@@ -198,7 +198,6 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
         return get_string("post_no_accounts", language=language)
 
     ig = ig_accounts[0]
-    clear_conversation_flow(user.id)
 
     try:
         publish_reel_to_instagram(
@@ -207,7 +206,19 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
             caption,
             ig.get("access_token"),
         )
+        clear_conversation_flow(user.id)
         return "✅ הריל פורסם בהצלחה! 🎬" + NOTEBOOK_RESET
     except Exception as e:
         print(f"[REEL PUBLISH ERROR] {repr(e)}")
-        return "אופס, לא הצלחתי לפרסם את הריל. בדקי שהחשבון מחובר ונסי שוב."
+        return _friendly_reel_error(str(e)) + "\n\n💾 הריל נשמר — שלחי *כן* לנסות שוב."
+
+
+def _friendly_reel_error(error_str: str) -> str:
+    err = error_str.lower()
+    if "190" in error_str or ("token" in err and ("expire" in err or "invalid" in err)):
+        return "⚠️ הטוקן פג תוקף.\n\nשלחי 'חברי חשבונות' לחיבור מחדש."
+    if "200" in error_str or "permission" in err:
+        return "⚠️ חסרות הרשאות פרסום.\n\nשלחי 'חברי חשבונות' ואשרי שוב."
+    if "video" in err or "media" in err or "container" in err:
+        return "⚠️ שגיאה בעיבוד הסרטון.\n\nייתכן שהפורמט לא נתמך. נסי סרטון .mp4."
+    return f"⚠️ הפרסום נכשל:\n\n{error_str[:200]}"

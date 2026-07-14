@@ -5,6 +5,7 @@ from src.specialists.publishing.caption_generator import generate_caption_for_im
 from src.specialists.publishing.instagram import publish_image_to_instagram
 from src.specialists.publishing.facebook import publish_text_post
 from src.db.repositories.social_account import SocialAccountRepository
+from src.brain.workflow_engine import NOTEBOOK_RESET
 
 _GOALS = {
     "1": "להביא מתאמנות חדשות",
@@ -103,14 +104,11 @@ def _handle_caption(user: User, state: ConversationState, business: Business,
     if msg_lower in _GENERATE_TRIGGERS or any(t in msg_lower for t in {"כתבי עבורי", "את תכתבי"}):
         return _auto_generate_caption(user, flow_data, business, language)
 
-    # Actual caption text (>= 3 words = real content)
-    if len(msg.split()) >= 3:
+    # 2+ words = treat as own caption text
+    if len(msg.split()) >= 2:
         return _handle_own_caption(user, state, msg, language)
 
-    # Short unclear message
-    if len(msg) >= 2:
-        return _auto_generate_caption(user, flow_data, business, language)
-
+    # Single word that's not a known trigger — ask clearly
     return "כתבי כיתוב לפוסט, או שלחי *כתבי* ואני אכין."
 
 
@@ -343,16 +341,14 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
     access_token = ig.get("access_token")
     print(f"[IG PUBLISH] ig_user_id={ig_user_id} token_present={bool(access_token)}")
 
-    # Clear flow BEFORE polling — prevents duplicate webhooks from re-triggering publish
-    clear_conversation_flow(user.id)
-
     try:
         post_url = publish_image_to_instagram(ig_user_id, image_url, caption, access_token)
-        return get_string("post_published", language=language, post_url=post_url)
+        clear_conversation_flow(user.id)
+        return get_string("post_published", language=language, post_url=post_url) + NOTEBOOK_RESET
     except Exception as e:
         error_str = str(e)
         print(f"[IG PUBLISH ERROR] {error_str}")
-        return _friendly_ig_error(error_str)
+        return _friendly_ig_error(error_str) + "\n\n💾 הפוסט נשמר — שלחי *כן* לנסות שוב."
 
 
 def _friendly_ig_error(error_str: str) -> str:

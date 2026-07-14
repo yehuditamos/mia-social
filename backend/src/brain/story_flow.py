@@ -2,6 +2,7 @@ from personality.loader import get_string
 from src.specialists.memory.models import User, Business, ConversationState
 from src.specialists.memory.engine import update_conversation_flow, clear_conversation_flow, get_business
 from src.db.repositories.social_account import SocialAccountRepository
+from src.brain.workflow_engine import NOTEBOOK_RESET
 
 _APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "✅", "אישור", "מאשרת", "מאשר", "פרסמי", "פרסם"}
 _CANCEL = {"לא", "בטל", "ביטול", "בטלי", "❌", "no", "cancel"}
@@ -98,6 +99,10 @@ def _handle_style(user: User, state: ConversationState, business: Business,
     msg = message.strip().lower()
     flow_data = state.flow_data or {}
 
+    if msg in _CANCEL:
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלתי את הסטורי 🙂"
+
     style = _STYLE_MAP.get(msg)
     if not style:
         return f"לא הבנתי 😊\n{_STYLE_MENU}"
@@ -134,6 +139,10 @@ def _handle_caption(user: User, state: ConversationState, business: Business,
     flow_data = state.flow_data or {}
     caption = message.strip()
     style = flow_data.get("style", "caption")
+
+    if caption.lower() in _CANCEL:
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלתי את הסטורי 🙂"
 
     if style == "full":
         update_conversation_flow(user.id, "story_creation", {
@@ -211,6 +220,17 @@ def _handle_approval(user: User, state: ConversationState, business: Business,
     return "לא הבנתי 😊\nכתבי:\n✅ כן — לפרסם\n❌ ביטול"
 
 
+def _friendly_story_error(error_str: str) -> str:
+    err = error_str.lower()
+    if "190" in error_str or ("token" in err and ("expire" in err or "invalid" in err)):
+        return "⚠️ הטוקן פג תוקף.\n\nשלחי 'חברי חשבונות' לחיבור מחדש."
+    if "200" in error_str or "permission" in err:
+        return "⚠️ חסרות הרשאות פרסום.\n\nשלחי 'חברי חשבונות' ואשרי שוב את כל ההרשאות."
+    if "media" in err or "video" in err:
+        return f"⚠️ שגיאה בעיבוד המדיה:\n\n{error_str[:200]}"
+    return f"⚠️ לא הצלחתי לפרסם את הסטורי:\n\n{error_str[:200]}"
+
+
 def _apply_and_upload(image_url, caption, filter_name, brand_frame, brand_name):
     if not image_url:
         return None
@@ -254,7 +274,6 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
         return get_string("post_no_accounts", language=language)
 
     ig = ig_accounts[0]
-    clear_conversation_flow(user.id)
 
     try:
         publish_story_to_instagram(
@@ -263,8 +282,9 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
             ig.get("access_token"),
             media_kind=media_kind,
         )
+        clear_conversation_flow(user.id)
         emoji = "🎬" if media_kind == "video" else "📸"
-        return f"✅ הסטורי פורסם בהצלחה! {emoji}"
+        return f"✅ הסטורי פורסם בהצלחה! {emoji}" + NOTEBOOK_RESET
     except Exception as e:
         print(f"[STORY PUBLISH ERROR] {repr(e)}")
-        return "אופס, לא הצלחתי לפרסם את הסטורי. בדקי שהחשבון מחובר ונסי שוב."
+        return _friendly_story_error(str(e)) + "\n\n💾 הסטורי נשמר — שלחי *כן* לנסות שוב."

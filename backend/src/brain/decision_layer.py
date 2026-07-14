@@ -209,10 +209,15 @@ def process_message(phone_number: str, message: str) -> str:
 
 def _handle_image_type_choice(user, business, message: str, language: str) -> str:
     from src.specialists.memory.engine import get_conversation_state, clear_conversation_flow, update_conversation_flow
+    from src.brain.workflow_engine import NOTEBOOK_RESET
 
     state = get_conversation_state(user.id)
     image_id = (state.flow_data or {}).get("image_id", "") if state else ""
     msg = message.strip().lower()
+
+    if msg in {"בטל", "ביטול", "בטלי", "❌", "cancel"}:
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלתי." + NOTEBOOK_RESET
 
     if msg in {"1", "פוסט", "post", "1️⃣"}:
         clear_conversation_flow(user.id)
@@ -326,10 +331,15 @@ def _strip_story_commands(text: str) -> str:
 
 def _handle_text_story_flow(user, business, state, message: str, language: str) -> str:
     from src.specialists.memory.engine import update_conversation_flow, clear_conversation_flow
+    from src.brain.workflow_engine import NOTEBOOK_RESET
 
     data = state.flow_data or {}
     step = data.get("step", "awaiting_color")
     text = data.get("text", "")
+
+    if message.strip().lower() in {"בטל", "ביטול", "בטלי", "❌", "cancel", "עצרי"}:
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלתי." + NOTEBOOK_RESET
 
     if step == "awaiting_text":
         t = _strip_story_commands(message.strip())
@@ -353,8 +363,7 @@ def _publish_text_story(user, business, text: str, bg: str) -> str:
     from src.brain.text_story import generate_and_upload
     from src.db.repositories.social_account import SocialAccountRepository
     from src.specialists.publishing.instagram import publish_story_to_instagram
-
-    clear_conversation_flow(user.id)
+    from src.brain.workflow_engine import NOTEBOOK_RESET
 
     if not business:
         return "לא נמצא עסק מחובר."
@@ -372,12 +381,15 @@ def _publish_text_story(user, business, text: str, bg: str) -> str:
             ig.get("access_token"),
             "image",
         )
-        from src.brain.workflow_engine import NOTEBOOK_RESET
+        clear_conversation_flow(user.id)
         bg_display = "שחור ⬛" if bg == "black" else "לבן ⬜"
         return f"✅ הסטורי פורסם!\n\n📝 {text}\n🎨 רקע {bg_display}" + NOTEBOOK_RESET
     except Exception as e:
         print(f"[TEXT STORY PUBLISH] error: {repr(e)}")
-        return "אופס, לא הצלחתי לפרסם את הסטורי. נסי שוב 💜"
+        err = str(e)
+        if "190" in err or "expired" in err.lower():
+            return "⚠️ הטוקן פג תוקף — חברי מחדש.\n\n💾 הסטורי נשמר — שלחי *כן* לנסות שוב."
+        return f"⚠️ לא הצלחתי לפרסם את הסטורי:\n\n{err[:150]}\n\n💾 הסטורי נשמר — שלחי *כן* לנסות שוב."
 
 
 def _handle_ig_reply(user, text: str) -> str:
