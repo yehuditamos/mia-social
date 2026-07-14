@@ -25,6 +25,7 @@ from src.specialists.memory.engine import update_conversation_flow, clear_conver
 from src.brain.workflow_engine import (
     classify_intent, is_pure_command, is_valid_hook, is_valid_cta,
     active_task_reminder, looks_like_topic, detect_color_preference,
+    NOTEBOOK_RESET,
 )
 
 _API_URL = "https://api.anthropic.com/v1/messages"
@@ -36,24 +37,24 @@ def start_carousel_flow(user, business, original_message: str) -> str:
     """
     Called from main_menu when the user requests a carousel.
 
-    If the original message already contains a topic or text,
-    we skip the awaiting_content prompt and start processing immediately.
+    Opens the notebook page for this carousel.
+    First question: idea or professional advice?
+    If inline topic/text already in the message → process immediately (skip question).
     """
+    # Check if there's already an inline topic in the original request
     topic = _extract_topic_from_request(original_message)
-
     if topic and len(topic) >= 3:
-        update_conversation_flow(user.id, "carousel_creation", {"step": "awaiting_content"})
-        return _process_content(user, {}, business, topic)
+        update_conversation_flow(user.id, "carousel_creation", {
+            "step": "awaiting_idea_status",
+            "inline_topic": topic,
+        })
+        return _process_content(user, {"inline_topic": topic}, business, topic)
 
-    update_conversation_flow(user.id, "carousel_creation", {"step": "awaiting_content"})
-    return (
-        "שלחי את הטקסט לקרוסלה, או ספרי על הנושא ואני אכתוב.\n\n"
-        "אבצע:\n"
-        "• הגהה ושיפור ניסוח\n"
-        "• חלוקה לדפים\n"
-        "• כותרת מושכת\n"
-        "• הנעה לפעולה"
-    )
+    update_conversation_flow(user.id, "carousel_creation", {
+        "step": "awaiting_idea_status",
+        "inline_topic": "",
+    })
+    return "כבר חשבת על רעיון, או שאת צריכה ייעוץ ממני? 💡"
 
 
 def handle_carousel_flow(user, state, business, message: str, language: str = "he") -> str:
@@ -67,6 +68,10 @@ def handle_carousel_flow(user, state, business, message: str, language: str = "h
         return "הקרוסלה בוטלה."
 
     # Active steps
+    if step == "awaiting_idea_status":
+        return _handle_idea_status(user, data, business, msg)
+    if step == "awaiting_idea_pick":
+        return _handle_idea_pick(user, data, business, msg)
     if step == "awaiting_content":
         return _handle_content(user, data, business, msg)
     if step == "awaiting_approval":
@@ -109,6 +114,132 @@ def handle_carousel_flow(user, state, business, message: str, language: str = "h
 
 # ─── Step handlers ─────────────────────────────────────────────────────────────
 
+# Words that signal "I have an idea" vs "I need advice"
+_HAS_IDEA_WORDS = {"חשבתי", "יש", "כן", "רעיון", "yes", "ברור", "יש לי", "כבר"}
+_NEEDS_ADVICE_WORDS = {"ייעוץ", "עזרי", "עצה", "לא", "לא יודעת", "לא בטוחה", "אין", "תמליצי", "no"}
+
+
+def _handle_idea_status(user, data: dict, business, msg: str) -> str:
+    """
+    First step of carousel flow: does the user have an idea or need advice?
+
+    Notebook page opened — we must close it (publish or delete).
+    """
+    if classify_intent(msg, "awaiting_idea_status") == "cancel":
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלנו. המחברת נקייה." + NOTEBOOK_RESET
+
+    ml = msg.lower().strip()
+    words = set(ml.split())
+
+    has_idea = (
+        words & _HAS_IDEA_WORDS
+        or any(p in ml for p in {"חשבתי על", "יש לי רעיון", "יש רעיון", "יש לי", "כן יש"})
+    )
+    needs_advice = (
+        words & _NEEDS_ADVICE_WORDS
+        or any(p in ml for p in {"לא יודעת", "לא בטוחה", "תמליצי לי", "עזרי לי"})
+    )
+
+    # If the message looks like actual content/topic rather than an answer to the question
+    if not has_idea and not needs_advice:
+        # Treat it as content directly
+        update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
+        return _process_content(user, data, business, msg)
+
+    if has_idea:
+        # Check if they also included the topic/idea in the same message
+        # e.g. "חשבתי על טיפים לבריאות"
+        for strip_phrase in ["חשבתי על ", "יש לי רעיון על ", "רעיון: ", "הנה: "]:
+            if strip_phrase in ml:
+                inline = msg[ml.index(strip_phrase) + len(strip_phrase):].strip()
+                if len(inline) >= 3:
+                    update_conversation_flow(user.id, "carousel_creation", {
+                        **data, "step": "awaiting_content"
+                    })
+                    return _process_content(user, data, business, inline)
+
+        update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
+        return (
+            "מעולה! 📝\n\n"
+            "שלחי לי בהודעה אחת:\n"
+            "1. את הטקסט לקרוסלה\n"
+            "2. איך תרצי שתיראה (לדוג׳ *רקע שחור* / *רקע לבן*)\n\n"
+            "אם אין העדפת עיצוב — אעלה עם רקע שחור."
+        )
+
+    # needs_advice path
+    ideas = _generate_content_ideas(business)
+    ideas_text = "\n".join(
+        f"{['1️⃣','2️⃣','3️⃣'][i]} {idea}" for i, idea in enumerate(ideas[:3])
+    )
+    update_conversation_flow(user.id, "carousel_creation", {
+        **data,
+        "step":  "awaiting_idea_pick",
+        "ideas": ideas,
+    })
+    return (
+        f"הנה 3 רעיונות שיעבדו מצוין לעסק שלך:\n\n"
+        f"{ideas_text}\n\n"
+        "איזה מדבר אלייך? (1 / 2 / 3)\n"
+        "או ספרי לי על רעיון אחר שיש לך."
+    )
+
+
+def _handle_idea_pick(user, data: dict, business, msg: str) -> str:
+    """User chose one of Mia's content ideas (or described their own)."""
+    if classify_intent(msg, "awaiting_idea_pick") == "cancel":
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלנו." + NOTEBOOK_RESET
+
+    ideas = data.get("ideas", [])
+    _NUM = {"1": 0, "2": 1, "3": 2, "1️⃣": 0, "2️⃣": 1, "3️⃣": 2}
+    picked_idx = _NUM.get(msg.strip())
+
+    if picked_idx is not None and picked_idx < len(ideas):
+        topic = ideas[picked_idx]
+    else:
+        topic = msg  # User described their own idea
+
+    # Now ask for design preference, then process
+    update_conversation_flow(user.id, "carousel_creation", {
+        **data,
+        "step":  "awaiting_content",
+        "topic": topic,
+    })
+    return (
+        f"יאללה, כותבת על: *{topic}*\n\n"
+        "🎨 איך תרצי שתיראה הקרוסלה?\n"
+        "(לדוג׳ רקע שחור טקסט לבן / רקע לבן)\n\n"
+        "אם אין העדפה — אעלה עם רקע שחור. פשוט כתבי *כן* להמשיך."
+    )
+
+
+def _generate_content_ideas(business, topic_hint: str = "") -> list:
+    """Generate 3 carousel content ideas tailored to the business using Claude."""
+    brand   = _bval(business, "brand_name",  "העסק")
+    what_do = _bval(business, "what_you_do", "")
+
+    system = (
+        f"את מנהלת סושיאל לעסק {brand} ({what_do}).\n"
+        "הצעי 3 רעיונות לקרוסלה בעלת ערך שתמשוך קהל ורלוונטית לעסק.\n"
+        "כל רעיון: שורה אחת, עד 8 מילים, ללא מספור."
+    )
+    hint = f" בנושא {topic_hint}" if topic_hint else ""
+    raw  = _call_claude(system, f"תני לי 3 רעיונות לקרוסלה{hint}.", max_tokens=130)
+    lines = [l.strip().lstrip("123456789.•-) ") for l in raw.split("\n") if l.strip()]
+    ideas = [l for l in lines if l][:3]
+
+    # Fallback if Claude is unavailable
+    if not ideas:
+        ideas = [
+            f"3 טיפים מקצועיים מ{brand}",
+            "מאחורי הקלעים של העסק שלנו",
+            "שאלות שלקוחות שואלים אותנו הכי הרבה",
+        ]
+    return ideas
+
+
 def _handle_content(user, data: dict, business, msg: str) -> str:
     intent = classify_intent(msg, "awaiting_content")
 
@@ -116,20 +247,31 @@ def _handle_content(user, data: dict, business, msg: str) -> str:
         clear_conversation_flow(user.id)
         return "הקרוסלה בוטלה."
 
+    # If we have a stored topic (from _handle_idea_pick) and user approves or gives only color
+    stored_topic = data.get("topic", "")
+    color_in_msg  = detect_color_preference(msg)
+
+    if stored_topic:
+        if intent == "approve" or msg.strip().lower() in {"כן", "בסדר", "ok", "אוקי", "המשיכי"}:
+            # User confirmed the topic with no design preference → default black
+            return _process_content(user, data, business, stored_topic)
+        if color_in_msg and len(msg.split()) <= 3:
+            # User gave only color preference → use stored topic with that color
+            updated = {**data, "color_pref": color_in_msg}
+            update_conversation_flow(user.id, "carousel_creation", updated)
+            return _process_content(user, updated, business, stored_topic)
+
     if len(msg) < 3:
         return (
-            "שלחי את הטקסט לקרוסלה, או ספרי על הנושא ואני אכתוב.\n\n"
-            "אבצע: הגהה • חלוקה לדפים • כותרת • הנעה לפעולה"
+            "שלחי לי את הטקסט לקרוסלה ואת הסגנון הרצוי.\n\n"
+            "לדוג׳: *רקע שחור* / *רקע לבן* — אם אין העדפה אעלה עם רקע שחור."
         )
 
-    # If the message is ONLY a color preference (short: "רקע לבן", "שחור"), store it and ask for text.
-    # This prevents "רקע לבן" from being used as carousel content.
-    color_only = detect_color_preference(msg) and len(msg.split()) <= 3
-    if color_only:
-        color = detect_color_preference(msg)
-        color_word = "לבן" if color == "white" else "שחור"
+    # If the message is ONLY a color preference (no stored topic and no content), store it and ask for text.
+    if color_in_msg and len(msg.split()) <= 3 and not stored_topic:
+        color_word = "לבן" if color_in_msg == "white" else "שחור"
         update_conversation_flow(user.id, "carousel_creation", {
-            **data, "color_pref": color
+            **data, "color_pref": color_in_msg
         })
         return f"שמרתי: רקע {color_word}.\n\nשלחי את הטקסט לקרוסלה:"
 
@@ -386,7 +528,7 @@ def _publish(user, business, slides: list, color: str) -> str:
         caption  = slides[0] if slides else ""
         post_url = publish_carousel_to_instagram(ig_user_id, slide_urls, caption, access_token)
         icon     = "⬛" if color == "black" else "⬜"
-        return f"✅ הקרוסלה פורסמה {icon}\n\n{post_url}"
+        return f"✅ הקרוסלה פורסמה {icon}\n\n{post_url}" + NOTEBOOK_RESET
     except Exception as e:
         err = str(e)
         print(f"[CAROUSEL_FLOW] publish error: {repr(e)}")

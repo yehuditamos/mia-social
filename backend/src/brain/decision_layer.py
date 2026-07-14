@@ -351,8 +351,9 @@ def _publish_text_story(user, business, text: str, bg: str) -> str:
             ig.get("access_token"),
             "image",
         )
+        from src.brain.workflow_engine import NOTEBOOK_RESET
         bg_display = "שחור ⬛" if bg == "black" else "לבן ⬜"
-        return f"✅ הסטורי פורסם!\n\n📝 {text}\n🎨 רקע {bg_display}"
+        return f"✅ הסטורי פורסם!\n\n📝 {text}\n🎨 רקע {bg_display}" + NOTEBOOK_RESET
     except Exception as e:
         print(f"[TEXT STORY PUBLISH] error: {repr(e)}")
         return "אופס, לא הצלחתי לפרסם את הסטורי. נסי שוב 💜"

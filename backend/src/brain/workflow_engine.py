@@ -160,6 +160,10 @@ def detect_color_preference(msg: str) -> str:
     return None
 
 
+# Appended to every successful publish message so the user always knows what comes next.
+NOTEBOOK_RESET = "\n\n📋 מה עושים עכשיו?"
+
+
 def step_label(flow: str, step: str) -> str:
     """Returns a one-line task status summary: '📋 קרוסלה | 📍 בחירת כותרת'"""
     _FLOWS = {

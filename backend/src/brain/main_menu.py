@@ -29,6 +29,57 @@ _MONTHLY_PLAN_PHRASES = [
 
 _REMINDER_PHRASES = ["תזכירי לי", "תזכיר לי", "תשלחי לי תזכורת"]
 
+# ─── "מה עושים עכשיו?" opener ──────────────────────────────────────────────────
+
+_GREETING_WORDS = {
+    "היי", "שלום", "בוקר", "ערב", "לילה", "מה נשמע", "מה קורה", "מה המצב",
+    "hey", "hi", "hello", "shalom", "נשמע", "קורה", "המצב",
+}
+
+_TASK_WORDS = {
+    "פוסט", "post", "קרוסלה", "carousel", "סטורי", "story", "סטוריז",
+    "ריל", "reel", "תמונה", "סרטון", "תוכן", "content",
+    "תכנון", "plan", "תכנית", "שבוע", "חודש", "רעיון", "idea",
+}
+
+
+def _is_opener(msg: str) -> bool:
+    """
+    True when the message is a greeting or very short with no task keyword.
+    These get "מה עושים עכשיו?" instead of free_chat.
+    """
+    ml = msg.lower().strip()
+    words = ml.split()
+
+    # If any task word present → has intent, NOT an opener
+    if set(words) & _TASK_WORDS:
+        return False
+
+    # Exact match in greeting set
+    if ml in _GREETING_WORDS:
+        return True
+
+    # Starts with a greeting word
+    if words and words[0] in {"היי", "שלום", "בוקר", "ערב", "לילה", "hey", "hi", "hello"}:
+        return True
+
+    # Short (≤3 words) message with no task keyword and no question mark
+    if len(words) <= 3 and "?" not in msg and "?" not in msg:
+        return True
+
+    return False
+
+
+def _opener_message() -> str:
+    return (
+        "מה עושים עכשיו? 📋\n\n"
+        "• פוסט / קרוסלה\n"
+        "• סטורי\n"
+        "• ריל\n"
+        "• תכנון שבועי / חודשי\n\n"
+        "כתבי מה על הפרק ואני כאן."
+    )
+
 _UPLOAD_VERBS = {"תעלי", "פרסמי", "העלי", "תפרסמי", "תעלה", "העלה", "שלחי ל"}
 
 _TEXT_STORY_TRIGGERS = ["של טקסט", "רק טקסט", "טקסט בלבד", "טקסט:", "text:", "רק קישור", "כיתוב בלבד"]
@@ -85,6 +136,10 @@ def _detect_intent(message: str) -> str:
 
 
 def handle_post_onboarding(user: User, business: Optional[Business], message: str, language: str = "he") -> str:
+    # Greetings and idle openers → home screen ("מה עושים עכשיו?")
+    if _is_opener(message):
+        return _opener_message()
+
     intent = _detect_intent(message)
 
     if intent == "create_post":
