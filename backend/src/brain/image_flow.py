@@ -15,9 +15,16 @@ _GOALS = {
     "6": "השראה",
 }
 
-_APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "✅", "אישור", "מאשרת", "מאשר"}
+_APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "✅", "אישור", "מאשרת", "מאשר", "לפרסם"}
 _CANCEL = {"לא", "בטל", "ביטול", "בטלי", "❌", "no", "cancel"}
 _EDIT = {"ערכי", "שנה", "שני", "ערוך", "✏️", "edit", "שינוי"}
+
+_CAPTION_MODE_MSG = (
+    "1️⃣ כתבי עבורי — תבחרי מטרה ומיה תכתוב\n"
+    "2️⃣ אני אכתוב לבד — כתבי כיתוב ומיה תגהה"
+)
+_ASK_OWN_CAPTION = "כתבי את הכיתוב שלך לתמונה ✍️\n\nמיה תגהה ותציין שיפורים לפני פרסום."
+_PROOFREAD_OPTIONS = "✅ אשרי את כל התיקונים | ✏️ ערכי בעצמי | 🔄 חזרי לטקסט המקורי"
 
 
 def start_image_flow(user: User, business: Business, image_id: str, language: str) -> str:
@@ -40,19 +47,25 @@ def start_image_flow(user: User, business: Business, image_id: str, language: st
         return "מצטערת, לא הצלחתי לשמור את התמונה. אפשר לנסות שוב? שלחי את התמונה מחדש 🙏"
 
     update_conversation_flow(user.id, "image_post", {
-        "step": "awaiting_goal",
+        "step": "awaiting_caption_mode",
         "image_analysis": analysis,
         "image_url": image_url,
     })
-    return get_string("image_received_ask_goal", language=language)
+    return f"ראיתי את התמונה 💜\n\n{_CAPTION_MODE_MSG}"
 
 
 def handle_image_flow(user: User, state: ConversationState, business: Business,
                       message: str, language: str) -> str:
-    flow_step = (state.flow_data or {}).get("step", "awaiting_goal")
+    flow_step = (state.flow_data or {}).get("step", "awaiting_caption_mode")
 
+    if flow_step == "awaiting_caption_mode":
+        return _handle_caption_mode(user, state, business, message, language)
     if flow_step == "awaiting_goal":
         return _handle_goal(user, state, business, message, language)
+    if flow_step == "awaiting_own_caption":
+        return _handle_own_caption(user, state, message, language)
+    if flow_step == "awaiting_proofread_approval":
+        return _handle_proofread_approval(user, state, business, message, language)
     if flow_step == "awaiting_approval":
         return _handle_approval(user, state, business, message, language)
     if flow_step == "awaiting_edit":
@@ -60,6 +73,26 @@ def handle_image_flow(user: User, state: ConversationState, business: Business,
 
     clear_conversation_flow(user.id)
     return get_string("main_menu", language=language, name=user.name or "")
+
+
+def _handle_caption_mode(user: User, state: ConversationState, business: Business,
+                          message: str, language: str) -> str:
+    msg = message.strip().lower()
+    flow_data = state.flow_data or {}
+
+    if msg in {"1", "1️⃣", "כתבי עבורי", "כתוב עבורי", "מיה תכתוב"}:
+        update_conversation_flow(user.id, "image_post", {**flow_data, "step": "awaiting_goal"})
+        return get_string("image_received_ask_goal", language=language)
+
+    if msg in {"2", "2️⃣", "אני אכתוב", "אני אכתוב לבד", "לבד", "אני"}:
+        update_conversation_flow(user.id, "image_post", {**flow_data, "step": "awaiting_own_caption"})
+        return _ASK_OWN_CAPTION
+
+    # Long message → user already wrote their caption
+    if len(message.split()) > 4:
+        return _handle_own_caption(user, state, message, language)
+
+    return f"ראיתי את התמונה 💜\n\n{_CAPTION_MODE_MSG}"
 
 
 def _handle_goal(user: User, state: ConversationState, business: Business,
@@ -101,6 +134,62 @@ def _handle_goal(user: User, state: ConversationState, business: Business,
     return get_string("post_preview", language=language, caption=caption)
 
 
+def _handle_own_caption(user: User, state: ConversationState, message: str, language: str) -> str:
+    from src.brain.text_editor import proofread_text, proofread_preview
+
+    flow_data = (state.flow_data or {}) if hasattr(state, "flow_data") else {}
+    original = message.strip()
+    corrected = proofread_text(original)
+    preview = proofread_preview(original, corrected)
+
+    update_conversation_flow(user.id, "image_post", {
+        **flow_data,
+        "step": "awaiting_proofread_approval",
+        "original_text": original,
+        "corrected_text": corrected,
+        "caption": corrected,
+    })
+    return preview
+
+
+def _handle_proofread_approval(user: User, state: ConversationState, business: Business,
+                                message: str, language: str) -> str:
+    msg = message.strip().lower()
+    flow_data = state.flow_data or {}
+    original = flow_data.get("original_text", "")
+    corrected = flow_data.get("corrected_text", "")
+
+    if msg in _CANCEL:
+        clear_conversation_flow(user.id)
+        return get_string("post_cancelled", language=language)
+
+    if any(w in msg for w in {"אשרי", "אשר", "✅", "אישור", "כן", "לפרסם", "תיקונים", "yes"}):
+        update_conversation_flow(user.id, "image_post", {
+            **flow_data,
+            "step": "awaiting_approval",
+            "caption": corrected,
+        })
+        return get_string("post_preview", language=language, caption=corrected)
+
+    if any(w in msg for w in {"חזרי", "חזור", "מקור", "🔄", "מקורי", "בחזרה"}):
+        update_conversation_flow(user.id, "image_post", {
+            **flow_data,
+            "step": "awaiting_approval",
+            "caption": original,
+        })
+        return get_string("post_preview", language=language, caption=original)
+
+    if any(w in msg for w in {"ערכי", "ערוך", "✏️", "edit", "שינוי", "שני", "שנה"}):
+        update_conversation_flow(user.id, "image_post", {
+            **flow_data,
+            "step": "awaiting_edit",
+            "caption": corrected,
+        })
+        return get_string("post_ask_edit", language=language)
+
+    return _PROOFREAD_OPTIONS
+
+
 def _handle_approval(user: User, state: ConversationState, business: Business,
                      message: str, language: str) -> str:
     msg = message.strip().lower()
@@ -124,7 +213,6 @@ def _handle_edit(user: User, state: ConversationState, business: Business,
                  message: str, language: str) -> str:
     flow_data = state.flow_data or {}
 
-    # If the user wrote their own text (not an instruction) — use it directly
     if not _is_edit_instruction(message):
         caption = message.strip()
     else:
@@ -149,27 +237,6 @@ def _handle_edit(user: User, state: ConversationState, business: Business,
         "caption": caption,
     })
     return get_string("post_preview", language=language, caption=caption)
-
-
-_EDIT_INSTRUCTION_VERBS = {
-    "תוסיפי", "תוסיף", "הוסיפי", "הוסיף", "תקצרי", "תקצר", "קצרי", "קצר",
-    "שני", "שנה", "תשני", "תשנה", "הסירי", "הסיר", "מחקי", "מחק",
-    "הפכי", "הפוך", "תכתבי", "תכתוב", "כתבי", "כתוב", "עשי", "עשה",
-    "תגרמי", "תדאגי", "תני", "תני", "תשמיטי", "תשמיט", "תחזקי",
-    "תהפכי", "תעצימי", "תוציאי", "תכניסי",
-}
-
-
-def _is_edit_instruction(msg: str) -> bool:
-    """True if the message is an edit instruction to Claude, not the user's own replacement text."""
-    words = msg.strip().split()
-    if not words:
-        return False
-    if words[0] in _EDIT_INSTRUCTION_VERBS:
-        return True
-    if len(words) <= 5:
-        return True
-    return False
 
 
 def _publish(user: User, flow_data: dict, language: str) -> str:
@@ -208,5 +275,40 @@ def _publish(user: User, flow_data: dict, language: str) -> str:
         post_url = publish_image_to_instagram(ig_user_id, image_url, caption, access_token)
         return get_string("post_published", language=language, post_url=post_url)
     except Exception as e:
-        print(f"[IG PUBLISH ERROR] {repr(e)}")
-        return get_string("post_publish_error", language=language)
+        error_str = str(e)
+        print(f"[IG PUBLISH ERROR] {error_str}")
+        return _friendly_ig_error(error_str)
+
+
+def _friendly_ig_error(error_str: str) -> str:
+    err = error_str.lower()
+    if "190" in error_str or ("token" in err and ("expire" in err or "invalid" in err)):
+        return "⚠️ הטוקן פג תוקף.\n\nשלחי 'חברי חשבונות' לחיבור מחדש."
+    if "200" in error_str or "permission" in err or "instagram_content_publish" in err:
+        return (
+            "⚠️ חסרה הרשאת instagram_content_publish.\n\n"
+            "שלחי 'חברי חשבונות' ואשרי שוב את כל ההרשאות."
+        )
+    if "container" in err or "media" in err:
+        return f"⚠️ שגיאה בהעלאת המדיה:\n\n{error_str[:250]}"
+    return f"⚠️ שגיאה מ-Meta:\n\n{error_str[:300]}\n\nנסי שוב."
+
+
+_EDIT_INSTRUCTION_VERBS = {
+    "תוסיפי", "תוסיף", "הוסיפי", "הוסיף", "תקצרי", "תקצר", "קצרי", "קצר",
+    "שני", "שנה", "תשני", "תשנה", "הסירי", "הסיר", "מחקי", "מחק",
+    "הפכי", "הפוך", "תכתבי", "תכתוב", "כתבי", "כתוב", "עשי", "עשה",
+    "תגרמי", "תדאגי", "תני", "תשמיטי", "תשמיט", "תחזקי",
+    "תהפכי", "תעצימי", "תוציאי", "תכניסי",
+}
+
+
+def _is_edit_instruction(msg: str) -> bool:
+    words = msg.strip().split()
+    if not words:
+        return False
+    if words[0] in _EDIT_INSTRUCTION_VERBS:
+        return True
+    if len(words) <= 5:
+        return True
+    return False
