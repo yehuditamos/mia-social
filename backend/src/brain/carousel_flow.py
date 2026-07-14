@@ -36,25 +36,18 @@ _MODEL   = "claude-haiku-4-5-20251001"
 def start_carousel_flow(user, business, original_message: str) -> str:
     """
     Called from main_menu when the user requests a carousel.
-
-    Opens the notebook page for this carousel.
-    First question: idea or professional advice?
-    If inline topic/text already in the message → process immediately (skip question).
+    First step: choose between text-only carousel or image carousel.
     """
-    # Check if there's already an inline topic in the original request
     topic = _extract_topic_from_request(original_message)
-    if topic and len(topic) >= 3:
-        update_conversation_flow(user.id, "carousel_creation", {
-            "step": "awaiting_idea_status",
-            "inline_topic": topic,
-        })
-        return _process_content(user, {"inline_topic": topic}, business, topic)
-
     update_conversation_flow(user.id, "carousel_creation", {
-        "step": "awaiting_idea_status",
-        "inline_topic": "",
+        "step": "awaiting_carousel_type",
+        "inline_topic": topic or "",
     })
-    return "כבר חשבת על רעיון, או שאת צריכה ייעוץ ממני? 💡"
+    return (
+        "איזה סוג קרוסלה?\n\n"
+        "📝 טקסט בלבד — אני יוצרת דפים עם רקע ותוכן\n"
+        "🖼️ עם תמונות — תשלחי תמונות ואני מוסיפה כיתובים"
+    )
 
 
 def handle_carousel_flow(user, state, business, message: str, language: str = "he") -> str:
@@ -68,6 +61,8 @@ def handle_carousel_flow(user, state, business, message: str, language: str = "h
         return "הקרוסלה בוטלה."
 
     # Active steps
+    if step == "awaiting_carousel_type":
+        return _handle_carousel_type(user, data, business, msg)
     if step == "awaiting_idea_status":
         return _handle_idea_status(user, data, business, msg)
     if step == "awaiting_idea_pick":
@@ -78,6 +73,8 @@ def handle_carousel_flow(user, state, business, message: str, language: str = "h
         return _handle_approval(user, data, business, msg)
     if step == "awaiting_slide_edit":
         return _handle_slide_edit(user, data, msg)
+    if step == "awaiting_images":
+        return _handle_text_while_awaiting_images(user, data, msg)
 
     # ── Backward-compatibility: old step names ─────────────────────────────────
     # Users in the middle of the old 8-step flow get gracefully redirected.
@@ -114,6 +111,10 @@ def handle_carousel_flow(user, state, business, message: str, language: str = "h
 
 # ─── Step handlers ─────────────────────────────────────────────────────────────
 
+# Carousel type selection
+_TEXT_TYPE_WORDS = {"טקסט", "text", "📝", "1", "בלבד", "ללא", "טקסטית", "רקע"}
+_IMG_TYPE_WORDS  = {"תמונות", "תמונה", "🖼️", "2", "images", "image", "עם"}
+
 # Words/phrases that signal "I have an idea or text ready"
 _HAS_IDEA_WORDS  = {"חשבתי", "יש", "כן", "רעיון", "yes", "ברור", "כבר", "כתבתי", "כתבנו", "כתוב", "טקסט", "תוכן"}
 _NEEDS_ADVICE_WORDS = {"ייעוץ", "עזרי", "עצה", "תמליצי", "no", "עזרה"}
@@ -132,6 +133,36 @@ def _wants_to_send_own_text(msg: str) -> bool:
         or any(p in ml for p in _SELF_TEXT_PHRASES)
         or classify_intent(msg, "awaiting_idea_status") == "self_write"
     )
+
+
+def _handle_carousel_type(user, data: dict, business, msg: str) -> str:
+    """Step 0: user picks text-only or image carousel."""
+    ml    = msg.lower().strip()
+    words = set(ml.split())
+
+    if classify_intent(msg, "awaiting_carousel_type") == "cancel":
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלנו." + NOTEBOOK_RESET
+
+    if words & _TEXT_TYPE_WORDS:
+        carousel_type = "text"
+    elif words & _IMG_TYPE_WORDS:
+        carousel_type = "images"
+    else:
+        return (
+            "לא הבנתי 😊\n\n"
+            "📝 טקסט בלבד\n"
+            "🖼️ עם תמונות"
+        )
+
+    inline_topic = data.get("inline_topic", "")
+    new_data = {**data, "step": "awaiting_idea_status", "carousel_type": carousel_type}
+    update_conversation_flow(user.id, "carousel_creation", new_data)
+
+    if inline_topic:
+        return _process_content(user, new_data, business, inline_topic)
+
+    return "כבר חשבת על רעיון, או שאת צריכה ייעוץ ממני? 💡"
 
 
 def _handle_idea_status(user, data: dict, business, msg: str) -> str:
@@ -381,6 +412,24 @@ def _process_content(user, data: dict, business, msg: str) -> str:
 
     all_slides = [hook] + body_slides + [cta]
 
+    # Image carousel branch — collect user photos then publish
+    if data.get("carousel_type") == "images":
+        image_descriptions = _generate_image_descriptions(all_slides, business)
+        desc_text = "\n".join(f"📸 תמונה {i+1}: {d}" for i, d in enumerate(image_descriptions))
+        update_conversation_flow(user.id, "carousel_creation", {
+            "step":               "awaiting_images",
+            "slides":             all_slides,
+            "image_descriptions": image_descriptions,
+            "image_urls":         [],
+            "carousel_type":      "images",
+        })
+        return (
+            f"מעולה! הכנתי {len(all_slides)} סליידים 🎉\n\n"
+            f"אני צריכה ממך {len(all_slides)} תמונות:\n\n"
+            f"{desc_text}\n\n"
+            "שלחי אותן אחת אחת 📤"
+        )
+
     update_conversation_flow(user.id, "carousel_creation", {
         "step":       "awaiting_approval",
         "slides":     all_slides,
@@ -591,6 +640,115 @@ def _publish(user, business, slides: list, color: str) -> str:
 def _save_draft(user) -> str:
     clear_conversation_flow(user.id)
     return "הקרוסלה נשמרה. כשתרצי לפרסם, כתבי *פוסט*."
+
+
+# ─── Image carousel: collect photos ────────────────────────────────────────────
+
+def handle_carousel_image(user, state, business, media_id: str) -> str:
+    """
+    Called from decision_layer when an image arrives while step == 'awaiting_images'.
+    Uploads the image, adds to image_urls, publishes when all images are received.
+    """
+    from src.whatsapp.media import download_media
+    from src.db.storage import upload_image
+
+    data       = state.flow_data or {}
+    slides     = data.get("slides", [])
+    image_urls = list(data.get("image_urls", []))
+    image_desc = data.get("image_descriptions", [])
+
+    try:
+        media_b64, mime_type = download_media(media_id)
+        if not mime_type.startswith("image/"):
+            return "הקובץ שנשלח אינו תמונה. שלחי תמונה 📸"
+        url = upload_image(media_b64, mime_type, media_id)
+    except Exception as e:
+        print(f"[CAROUSEL_IMG] upload error: {repr(e)}")
+        return "לא הצלחתי לקבל את התמונה. שלחי שוב 🙏"
+
+    image_urls.append(url)
+    total    = len(slides)
+    received = len(image_urls)
+
+    update_conversation_flow(user.id, "carousel_creation", {**data, "image_urls": image_urls})
+
+    if received >= total:
+        return _publish_image_carousel(user, business, slides, image_urls)
+
+    next_desc  = image_desc[received] if received < len(image_desc) else ""
+    next_hint  = f"\n📸 הבאה: {next_desc}" if next_desc else ""
+    return f"✅ קיבלתי ({received}/{total}){next_hint}\n\nשלחי את התמונה הבאה:"
+
+
+def _handle_text_while_awaiting_images(user, data: dict, msg: str) -> str:
+    """Handles text messages that arrive while we're waiting for images."""
+    if classify_intent(msg, "awaiting_images") == "cancel":
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלנו." + NOTEBOOK_RESET
+
+    image_desc = data.get("image_descriptions", [])
+    image_urls = data.get("image_urls", [])
+    received   = len(image_urls)
+    total      = len(data.get("slides", []))
+
+    next_desc = image_desc[received] if received < len(image_desc) else ""
+    next_hint = f"\n📸 {next_desc}" if next_desc else ""
+    return f"ממתינה לתמונות 📸 ({received}/{total}){next_hint}\n\nשלחי תמונה:"
+
+
+def _generate_image_descriptions(slides: list, business) -> list:
+    """For each slide text, Claude describes what photo would fit best."""
+    brand   = _bval(business, "brand_name",  "העסק")
+    what_do = _bval(business, "what_you_do", "")
+
+    slides_text = "\n".join(f"סלייד {i+1}: {s}" for i, s in enumerate(slides))
+    system = (
+        f"מנהלת סושיאל לעסק {brand} ({what_do}).\n"
+        "לכל סלייד בקרוסלה תארי תמונה ספציפית ומוחשית שתתאים לו.\n"
+        "תיאור אחד בשורה, קצר וברור (לדוג׳ 'מתאמנת בסטודיו, חיוך טבעי').\n"
+        "ללא מספור, ללא תגים."
+    )
+    raw   = _call_claude(system, f"הסליידים:\n{slides_text}", max_tokens=200)
+    lines = [l.strip().lstrip("•-0123456789.) ") for l in raw.split("\n") if l.strip()]
+    descriptions = [l for l in lines if l][:len(slides)]
+
+    # Pad with generic fallbacks if Claude returned fewer descriptions
+    if len(descriptions) < len(slides):
+        descriptions += [f"תמונה רלוונטית לסלייד {i+1}" for i in range(len(descriptions), len(slides))]
+
+    return descriptions
+
+
+def _publish_image_carousel(user, business, slides: list, image_urls: list) -> str:
+    from src.db.repositories.social_account import SocialAccountRepository
+    from src.specialists.publishing.instagram import publish_carousel_to_instagram
+
+    clear_conversation_flow(user.id)
+
+    if not business:
+        return "לא נמצא עסק מחובר."
+
+    ig_accounts = SocialAccountRepository().get_by_business(business.id, platform="instagram")
+    if not ig_accounts:
+        return "אין חשבון אינסטגרם מחובר — חברי חשבון ונסי שוב."
+
+    ig           = ig_accounts[0]
+    ig_user_id   = ig.get("platform_account_id")
+    access_token = ig.get("access_token")
+
+    if not ig_user_id or not access_token:
+        return "נתוני החשבון חסרים — חברי מחדש."
+
+    try:
+        caption  = slides[0] if slides else ""
+        post_url = publish_carousel_to_instagram(ig_user_id, image_urls, caption, access_token)
+        return f"✅ קרוסלת התמונות פורסמה! 🖼️\n\n{post_url}" + NOTEBOOK_RESET
+    except Exception as e:
+        err = str(e)
+        print(f"[CAROUSEL_IMG_PUBLISH] error: {repr(e)}")
+        if "190" in err or "expired" in err.lower():
+            return "פג תוקף החיבור לאינסטגרם — חברי מחדש."
+        return f"לא הצלחתי לפרסם — נסי שוב.\n\n({err[:80]})"
 
 
 # ─── Claude: single combined call ──────────────────────────────────────────────

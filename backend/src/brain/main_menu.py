@@ -3,7 +3,7 @@ from personality.loader import get_string
 from src.specialists.memory.models import User, Business
 from src.specialists.memory.engine import update_conversation_flow, upsert_business_field
 
-_POST_KEYWORDS = {"פוסט", "post", "1", "1️⃣"}
+_POST_KEYWORDS = {"פוסט", "post", "קרוסלה", "carousel", "קרוסל", "1", "1️⃣"}
 _STORY_KEYWORDS = {"סטורי", "story", "סטוריז", "2", "2️⃣"}
 _REEL_KEYWORDS = {"ריל", "reel", "reels", "3", "3️⃣"}
 _ACCESSIBILITY_KEYWORDS = {"נגישות", "accessibility", "♿"}
