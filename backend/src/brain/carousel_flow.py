@@ -374,6 +374,11 @@ def _process_content(user, data: dict, business, msg: str) -> str:
     hook = hooks[0] if hooks else body_slides[0][:40]
     cta  = ctas[0]  if ctas  else "שתפי עם מי שזה רלוונטי לה"
 
+    # Deduplicate: Claude sometimes includes the hook text as the first body slide.
+    # If that happens, remove the first body slide to avoid showing the same text twice.
+    if body_slides and hook and body_slides[0].strip()[:40].lower() == hook.strip()[:40].lower():
+        body_slides = body_slides[1:] if len(body_slides) > 1 else body_slides
+
     all_slides = [hook] + body_slides + [cta]
 
     update_conversation_flow(user.id, "carousel_creation", {
@@ -608,11 +613,11 @@ def _generate_all(content: str, is_topic: bool, brand: str,
         f"מנהלת סושיאל לעסק {brand} ({what_do}). סגנון: {style}.\n\n"
         f"{input_desc}\n\n"
         "החזירי JSON בפורמט הזה בדיוק:\n"
-        '{"slides":["דף 2","דף 3"],'
+        '{"slides":["תוכן דף פנימי 1","תוכן דף פנימי 2"],'
         '"hooks":["כותרת 1","כותרת 2","כותרת 3"],'
         '"ctas":["הנעה 1","הנעה 2","הנעה 3"]}\n\n'
         "כללים:\n"
-        "- slides: 2-4 אלמנטים, כל אחד עד 15 מילים\n"
+        "- slides: 2-4 דפי גוף בלבד (לא כולל כותרת פתיחה ולא הנעה לפעולה!), כל דף עד 15 מילים\n"
         "- hooks: בדיוק 3 כותרות פתיחה, מושכות תשומת לב, עד 8 מילים\n"
         "- ctas: בדיוק 3 הנעות לפעולה, עד 8 מילים\n"
         "- JSON בלבד, ללא טקסט נוסף"

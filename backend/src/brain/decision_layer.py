@@ -83,6 +83,23 @@ def process_message(phone_number: str, message: str) -> str:
                 from src.brain.monthly_plan import handle_setup_planning
                 return handle_setup_planning(user, business, message)
 
+            # ── Global cancel safety-net ───────────────────────────────────────
+            # Catches any flow that doesn't handle "ביטול" itself.
+            # Flows with their own cancel handling (carousel, post, image) still
+            # run first because they're routed below — this only fires for flows
+            # that fall through to this point with a cancel signal.
+            _GLOBAL_CANCEL_WORDS = {"ביטול", "בטל", "בטלי", "❌", "cancel", "עצרי", "הפסיקי"}
+            if (state.flow
+                    and state.flow not in {
+                        "carousel_creation", "post_creation", "image_post",
+                        "story_creation", "reel_creation",  # reel now handles its own cancel
+                    }
+                    and message.strip().lower() in _GLOBAL_CANCEL_WORDS):
+                from src.specialists.memory.engine import clear_conversation_flow
+                from src.brain.workflow_engine import NOTEBOOK_RESET
+                clear_conversation_flow(user.id)
+                return "בוטל." + NOTEBOOK_RESET
+
             if message.strip().startswith("ענה"):
                 rest = message.strip()[3:].lstrip(" :,")
                 if rest:
