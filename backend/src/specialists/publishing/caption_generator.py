@@ -4,7 +4,7 @@ import requests
 _API_URL = "https://api.anthropic.com/v1/messages"
 _MODEL = "claude-haiku-4-5-20251001"
 
-_BASE_SYSTEM = """אתה מיה — מנהלת סושיאל ישראלית בכירה.
+_BASE_SYSTEM = """את מיה — מנהלת סושיאל ישראלית בכירה.
 
 עסק: {brand_name}
 תיאור: {what_you_do}
