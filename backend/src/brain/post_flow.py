@@ -80,19 +80,24 @@ def _handle_approval(user: User, state: ConversationState, business: Business,
 def _handle_edit(user: User, state: ConversationState, business: Business,
                  message: str, language: str) -> str:
     flow_data = state.flow_data or {}
-    try:
-        caption = generate_caption(
-            brand_name=business.brand_name,
-            what_you_do=business.what_you_do,
-            writing_style=business.writing_style,
-            writing_language=business.writing_language,
-            topic=flow_data.get("topic", ""),
-            edit_note=message,
-        )
-    except Exception as e:
-        print("CAPTION ERROR:", repr(e))
-        clear_conversation_flow(user.id)
-        return get_string("post_caption_error", language=language)
+
+    # If the user wrote their own text (not an instruction) — use it directly
+    if not _is_edit_instruction(message):
+        caption = message.strip()
+    else:
+        try:
+            caption = generate_caption(
+                brand_name=business.brand_name,
+                what_you_do=business.what_you_do,
+                writing_style=business.writing_style,
+                writing_language=business.writing_language,
+                topic=flow_data.get("topic", ""),
+                edit_note=message,
+            )
+        except Exception as e:
+            print("CAPTION ERROR:", repr(e))
+            clear_conversation_flow(user.id)
+            return get_string("post_caption_error", language=language)
 
     update_conversation_flow(user.id, "post_creation", {
         **flow_data,
@@ -100,6 +105,29 @@ def _handle_edit(user: User, state: ConversationState, business: Business,
         "caption": caption,
     })
     return get_string("post_preview", language=language, caption=caption)
+
+
+_EDIT_INSTRUCTION_VERBS = {
+    "תוסיפי", "תוסיף", "הוסיפי", "הוסיף", "תקצרי", "תקצר", "קצרי", "קצר",
+    "שני", "שנה", "תשני", "תשנה", "הסירי", "הסיר", "מחקי", "מחק",
+    "הפכי", "הפוך", "תכתבי", "תכתוב", "כתבי", "כתוב", "עשי", "עשה",
+    "תגרמי", "תדאגי", "תני", "תני", "תשמיטי", "תשמיט", "תחזקי",
+    "תהפכי", "תעצימי", "תוציאי", "תכניסי",
+}
+
+
+def _is_edit_instruction(msg: str) -> bool:
+    """True if the message is an edit instruction to Claude, not the user's own replacement text."""
+    words = msg.strip().split()
+    if not words:
+        return False
+    # Starts with an instruction verb
+    if words[0] in _EDIT_INSTRUCTION_VERBS:
+        return True
+    # Very short message — likely an instruction (e.g., "קצר יותר", "הוסיפי אמוג'י")
+    if len(words) <= 5:
+        return True
+    return False
 
 
 def _publish(user: User, flow_data: dict, language: str) -> str:
