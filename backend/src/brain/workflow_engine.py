@@ -144,6 +144,50 @@ def step_label(flow: str, step: str) -> str:
     return f"📋 {flow_name}  |  📍 {step_name}"
 
 
+def looks_like_topic(msg: str) -> bool:
+    """
+    True if msg is a short topic/subject phrase rather than actual content text.
+
+    Topic examples: "טיפים לבריאות", "אורח חיים בריא", "שירות חדש"
+    Content examples: "אני רוצה לשתף שהשבוע...", "לקוחות יקרים, שמחה לבשר..."
+    """
+    m = msg.strip()
+
+    # Multi-line = definitely content, not a topic
+    if "\n" in m:
+        return False
+
+    words = m.split()
+
+    # Very short = topic
+    if len(words) <= 4:
+        # But "אני אכתוב על X" or "הייתה לי" are not topics
+        if words and words[0] in {"אני", "אנחנו", "הייתה", "היה", "יש", "אין"}:
+            return False
+        return True
+
+    # Long = content
+    if len(words) > 12:
+        return False
+
+    # Mid-range: check for sentence markers that signal actual content text
+    _CONTENT_MARKERS = {
+        "אני", "אנחנו", "הם", "הן", "היא", "הוא", "זה", "זו", "זאת",
+        "כי", "כאשר", "כש", "אבל", "אך", "אלא", "כדי",
+        "צריך", "צריכה", "רוצה", "רוצים", "יכול", "יכולה",
+        "היום", "מחר", "אתמול", "השבוע", "החודש",
+        "שמחה", "שמח", "מרגשת", "מרגש", "חשוב", "חשובה",
+    }
+    if any(w in _CONTENT_MARKERS for w in words):
+        return False
+
+    # Punctuation that suggests full sentences
+    if any(c in m for c in ".,;!") and len(words) > 5:
+        return False
+
+    return True
+
+
 def active_task_reminder(flow: str, step: str) -> str:
     """One-line reminder shown when user sends off-topic message in an active flow."""
     _STEP_PROMPTS = {

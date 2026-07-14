@@ -47,23 +47,22 @@ def start_image_flow(user: User, business: Business, image_id: str, language: st
         return "מצטערת, לא הצלחתי לשמור את התמונה. אפשר לנסות שוב? שלחי את התמונה מחדש 🙏"
 
     update_conversation_flow(user.id, "image_post", {
-        "step": "awaiting_caption_mode",
+        "step": "awaiting_caption",
         "image_analysis": analysis,
         "image_url": image_url,
     })
-    return f"ראיתי את התמונה 💜\n\n{_CAPTION_MODE_MSG}"
+    return "קיבלתי את התמונה.\n\nכתבי כיתוב לפוסט, או שלחי *כתבי* ואני אכין."
 
 
 def handle_image_flow(user: User, state: ConversationState, business: Business,
                       message: str, language: str) -> str:
-    flow_step = (state.flow_data or {}).get("step", "awaiting_caption_mode")
+    flow_step = (state.flow_data or {}).get("step", "awaiting_caption")
 
-    if flow_step == "awaiting_caption_mode":
-        return _handle_caption_mode(user, state, business, message, language)
-    if flow_step == "awaiting_goal":
-        return _handle_goal(user, state, business, message, language)
-    if flow_step == "awaiting_own_caption":
-        return _handle_own_caption(user, state, message, language)
+    # New streamlined step
+    if flow_step == "awaiting_caption":
+        return _handle_caption(user, state, business, message, language)
+
+    # Active steps
     if flow_step == "awaiting_proofread_approval":
         return _handle_proofread_approval(user, state, business, message, language)
     if flow_step == "awaiting_approval":
@@ -71,8 +70,73 @@ def handle_image_flow(user: User, state: ConversationState, business: Business,
     if flow_step == "awaiting_edit":
         return _handle_edit(user, state, business, message, language)
 
+    # Backward compat: old steps route to new handler
+    if flow_step in ("awaiting_caption_mode", "awaiting_own_caption"):
+        return _handle_caption(user, state, business, message, language)
+    if flow_step == "awaiting_goal":
+        return _handle_goal(user, state, business, message, language)
+
     clear_conversation_flow(user.id)
     return get_string("main_menu", language=language, name=user.name or "")
+
+
+def _handle_caption(user: User, state: ConversationState, business: Business,
+                    message: str, language: str) -> str:
+    """
+    Unified caption step. Internal checks:
+    1. User sends actual text → proofread + show preview (no mode question)
+    2. User says 'כתבי' → auto-generate caption (no goal question)
+    3. Anything ambiguous → re-ask clearly
+
+    Eliminates: awaiting_caption_mode, awaiting_goal (two questions removed)
+    """
+    flow_data = state.flow_data or {}
+    msg       = message.strip()
+    msg_lower = msg.lower()
+
+    _GENERATE_TRIGGERS = {
+        "כתבי", "תכתבי", "כתוב", "תכתוב",
+        "1", "1️⃣", "כתבי עבורי", "את כתבי", "מה תכתבי",
+        "תייצרי", "תמציאי", "תחשבי",
+    }
+
+    if msg_lower in _GENERATE_TRIGGERS or any(t in msg_lower for t in {"כתבי עבורי", "את תכתבי"}):
+        return _auto_generate_caption(user, flow_data, business, language)
+
+    # Actual caption text (>= 3 words = real content)
+    if len(msg.split()) >= 3:
+        return _handle_own_caption(user, state, msg, language)
+
+    # Short unclear message
+    if len(msg) >= 2:
+        return _auto_generate_caption(user, flow_data, business, language)
+
+    return "כתבי כיתוב לפוסט, או שלחי *כתבי* ואני אכין."
+
+
+def _auto_generate_caption(user: User, flow_data: dict, business: Business,
+                            language: str) -> str:
+    """Generate caption automatically without asking for goal."""
+    analysis = flow_data.get("image_analysis")
+    try:
+        caption = generate_caption_for_image(
+            brand_name=    getattr(business, "brand_name",    "העסק") or "העסק",
+            what_you_do=   getattr(business, "what_you_do",   "") or "",
+            writing_style= getattr(business, "writing_style", "חמים ואישי") or "חמים ואישי",
+            writing_language=getattr(business, "writing_language", "he") or "he",
+            image_analysis=analysis,
+            goal="general",
+        )
+    except Exception as e:
+        print(f"[IMAGE_FLOW] auto-caption error: {repr(e)}")
+        return "לא הצלחתי לייצר כיתוב — נסי לכתוב בעצמך."
+
+    update_conversation_flow(user.id, "image_post", {
+        **flow_data,
+        "step":    "awaiting_approval",
+        "caption": caption,
+    })
+    return get_string("post_preview", language=language, caption=caption)
 
 
 def _handle_caption_mode(user: User, state: ConversationState, business: Business,
