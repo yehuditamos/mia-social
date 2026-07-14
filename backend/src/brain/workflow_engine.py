@@ -225,6 +225,9 @@ def looks_like_topic(msg: str) -> bool:
         "צריך", "צריכה", "רוצה", "רוצים", "יכול", "יכולה",
         "היום", "מחר", "אתמול", "השבוע", "החודש",
         "שמחה", "שמח", "מרגשת", "מרגש", "חשוב", "חשובה",
+        # Past-tense first-person verbs — "שכתבתי", "כתבתי", "עשיתי" signal user content, not a topic
+        "כתבתי", "כתבנו", "שכתבתי", "שכתבנו", "כתב", "כתוב",
+        "עשיתי", "עשינו", "הכנתי", "הכנו", "הכין",
     }
     if any(w in _CONTENT_MARKERS for w in words):
         return False

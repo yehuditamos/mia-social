@@ -114,16 +114,36 @@ def handle_carousel_flow(user, state, business, message: str, language: str = "h
 
 # ─── Step handlers ─────────────────────────────────────────────────────────────
 
-# Words that signal "I have an idea" vs "I need advice"
-_HAS_IDEA_WORDS = {"חשבתי", "יש", "כן", "רעיון", "yes", "ברור", "יש לי", "כבר"}
-_NEEDS_ADVICE_WORDS = {"ייעוץ", "עזרי", "עצה", "לא", "לא יודעת", "לא בטוחה", "אין", "תמליצי", "no"}
+# Words/phrases that signal "I have an idea or text ready"
+_HAS_IDEA_WORDS  = {"חשבתי", "יש", "כן", "רעיון", "yes", "ברור", "כבר", "כתבתי", "כתבנו", "כתוב", "טקסט", "תוכן"}
+_NEEDS_ADVICE_WORDS = {"ייעוץ", "עזרי", "עצה", "תמליצי", "no", "עזרה"}
+
+# "כתבתי" / "יש לי" signal the user has their own text — ask them to send it
+_SELF_WROTE_WORDS = {"כתבתי", "כתבנו", "כתוב", "שכתבתי"}
+_SELF_TEXT_PHRASES = ("יש לי טקסט", "יש לי תוכן", "כתבתי טקסט", "כתבתי תוכן", "יש לי")
+
+
+def _wants_to_send_own_text(msg: str) -> bool:
+    """True when the user is saying 'I have/wrote my own text' rather than naming a topic."""
+    ml = msg.lower().strip()
+    words = set(ml.split())
+    return (
+        bool(words & _SELF_WROTE_WORDS)
+        or any(p in ml for p in _SELF_TEXT_PHRASES)
+        or classify_intent(msg, "awaiting_idea_status") == "self_write"
+    )
 
 
 def _handle_idea_status(user, data: dict, business, msg: str) -> str:
     """
-    First step of carousel flow: does the user have an idea or need advice?
+    Step 1: does the user have an idea/text, or need Mia's advice?
 
-    Notebook page opened — we must close it (publish or delete).
+    Detection order:
+    1. Cancel → close notebook
+    2. "Needs advice" signal → show 3 ideas
+    3. "Has own text" signal ("כתבתי", "יש לי טקסט") → ask to send it
+    4. "Has idea" signal → ask for text + design in one message
+    5. Anything else → treat the message itself as content/topic directly
     """
     if classify_intent(msg, "awaiting_idea_status") == "cancel":
         clear_conversation_flow(user.id)
@@ -132,32 +152,52 @@ def _handle_idea_status(user, data: dict, business, msg: str) -> str:
     ml = msg.lower().strip()
     words = set(ml.split())
 
-    has_idea = (
-        words & _HAS_IDEA_WORDS
-        or any(p in ml for p in {"חשבתי על", "יש לי רעיון", "יש רעיון", "יש לי", "כן יש"})
-    )
     needs_advice = (
         words & _NEEDS_ADVICE_WORDS
-        or any(p in ml for p in {"לא יודעת", "לא בטוחה", "תמליצי לי", "עזרי לי"})
+        or any(p in ml for p in {"לא יודעת", "לא בטוחה", "תמליצי לי", "עזרי לי", "לא"})
     )
 
-    # If the message looks like actual content/topic rather than an answer to the question
-    if not has_idea and not needs_advice:
-        # Treat it as content directly
+    if needs_advice:
+        ideas = _generate_content_ideas(business)
+        ideas_text = "\n".join(
+            f"{['1️⃣','2️⃣','3️⃣'][i]} {idea}" for i, idea in enumerate(ideas[:3])
+        )
+        update_conversation_flow(user.id, "carousel_creation", {
+            **data, "step": "awaiting_idea_pick", "ideas": ideas,
+        })
+        return (
+            f"הנה 3 רעיונות שיעבדו מצוין לעסק שלך:\n\n"
+            f"{ideas_text}\n\n"
+            "איזה מדבר אלייך? (1 / 2 / 3)\n"
+            "או ספרי לי על רעיון אחר שיש לך."
+        )
+
+    # User has their own text → ask them to send it
+    if _wants_to_send_own_text(msg):
         update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
-        return _process_content(user, data, business, msg)
+        return (
+            "מעולה! 📝\n\n"
+            "שלחי לי בהודעה אחת:\n"
+            "1. את הטקסט לקרוסלה\n"
+            "2. איך תרצי שתיראה (לדוג׳ *רקע שחור* / *רקע לבן*)\n\n"
+            "אם אין העדפת עיצוב — אעלה עם רקע שחור."
+        )
+
+    has_idea = bool(words & _HAS_IDEA_WORDS) or any(
+        p in ml for p in {"חשבתי על", "יש לי רעיון", "יש רעיון", "כן יש"}
+    )
 
     if has_idea:
-        # Check if they also included the topic/idea in the same message
-        # e.g. "חשבתי על טיפים לבריאות"
-        for strip_phrase in ["חשבתי על ", "יש לי רעיון על ", "רעיון: ", "הנה: "]:
+        # Check if they also embedded the topic/text in the same message
+        for strip_phrase in ["חשבתי על ", "יש לי רעיון על ", "רעיון: ", "הנה: ", "על "]:
             if strip_phrase in ml:
-                inline = msg[ml.index(strip_phrase) + len(strip_phrase):].strip()
-                if len(inline) >= 3:
+                remaining = msg[ml.index(strip_phrase) + len(strip_phrase):].strip()
+                # Only use as inline topic if it's clearly a topic (short, not their text)
+                if 3 <= len(remaining) <= 60 and not _wants_to_send_own_text(remaining):
                     update_conversation_flow(user.id, "carousel_creation", {
                         **data, "step": "awaiting_content"
                     })
-                    return _process_content(user, data, business, inline)
+                    return _process_content(user, data, business, remaining)
 
         update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
         return (
@@ -168,29 +208,30 @@ def _handle_idea_status(user, data: dict, business, msg: str) -> str:
             "אם אין העדפת עיצוב — אעלה עם רקע שחור."
         )
 
-    # needs_advice path
-    ideas = _generate_content_ideas(business)
-    ideas_text = "\n".join(
-        f"{['1️⃣','2️⃣','3️⃣'][i]} {idea}" for i, idea in enumerate(ideas[:3])
-    )
-    update_conversation_flow(user.id, "carousel_creation", {
-        **data,
-        "step":  "awaiting_idea_pick",
-        "ideas": ideas,
-    })
-    return (
-        f"הנה 3 רעיונות שיעבדו מצוין לעסק שלך:\n\n"
-        f"{ideas_text}\n\n"
-        "איזה מדבר אלייך? (1 / 2 / 3)\n"
-        "או ספרי לי על רעיון אחר שיש לך."
-    )
+    # No clear signal → treat the message as content/topic directly
+    update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
+    return _process_content(user, data, business, msg)
 
 
 def _handle_idea_pick(user, data: dict, business, msg: str) -> str:
-    """User chose one of Mia's content ideas (or described their own)."""
+    """
+    User responds to the 3-ideas list.
+    Expected: 1/2/3 pick, a custom topic description, or "I have my own text".
+    """
     if classify_intent(msg, "awaiting_idea_pick") == "cancel":
         clear_conversation_flow(user.id)
         return "בסדר, ביטלנו." + NOTEBOOK_RESET
+
+    # "I have my own text" → ask them to send it
+    if _wants_to_send_own_text(msg):
+        update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
+        return (
+            "מעולה! 📝\n\n"
+            "שלחי לי בהודעה אחת:\n"
+            "1. את הטקסט לקרוסלה\n"
+            "2. סגנון עיצוב (לדוג׳ *רקע שחור* / *רקע לבן*)\n\n"
+            "אם אין העדפה — אעלה עם רקע שחור."
+        )
 
     ideas = data.get("ideas", [])
     _NUM = {"1": 0, "2": 1, "3": 2, "1️⃣": 0, "2️⃣": 1, "3️⃣": 2}
@@ -199,20 +240,12 @@ def _handle_idea_pick(user, data: dict, business, msg: str) -> str:
     if picked_idx is not None and picked_idx < len(ideas):
         topic = ideas[picked_idx]
     else:
-        topic = msg  # User described their own idea
+        # Custom topic described by user
+        topic = msg
 
-    # Now ask for design preference, then process
-    update_conversation_flow(user.id, "carousel_creation", {
-        **data,
-        "step":  "awaiting_content",
-        "topic": topic,
-    })
-    return (
-        f"יאללה, כותבת על: *{topic}*\n\n"
-        "🎨 איך תרצי שתיראה הקרוסלה?\n"
-        "(לדוג׳ רקע שחור טקסט לבן / רקע לבן)\n\n"
-        "אם אין העדפה — אעלה עם רקע שחור. פשוט כתבי *כן* להמשיך."
-    )
+    # Process immediately — no extra design question; default = black
+    update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
+    return _process_content(user, data, business, topic)
 
 
 def _generate_content_ideas(business, topic_hint: str = "") -> list:
@@ -247,16 +280,27 @@ def _handle_content(user, data: dict, business, msg: str) -> str:
         clear_conversation_flow(user.id)
         return "הקרוסלה בוטלה."
 
-    # If we have a stored topic (from _handle_idea_pick) and user approves or gives only color
     stored_topic = data.get("topic", "")
     color_in_msg  = detect_color_preference(msg)
 
+    # Platform clarification ("לאינסטגרם", "אינסטגרם") — the carousel is always for Instagram.
+    # Don't treat this as content; if we have a stored topic, proceed with it.
+    _PLATFORM_WORDS = {"אינסטגרם", "instagram", "ig", "לאינסטגרם", "לאינסטגראם"}
+    if set(msg.lower().split()) <= _PLATFORM_WORDS | {"אבל", "אני", "רוצה", "ל", "על", "ה"}:
+        # Message is only platform words + filler — not actual content
+        if stored_topic:
+            return _process_content(user, data, business, stored_topic)
+        update_conversation_flow(user.id, "carousel_creation", {**data})
+        return (
+            "הקרוסלה תועלה לאינסטגרם 📸\n\n"
+            "שלחי לי את הטקסט לקרוסלה:"
+        )
+
+    # If we have a stored topic and user approves or gives only color
     if stored_topic:
         if intent == "approve" or msg.strip().lower() in {"כן", "בסדר", "ok", "אוקי", "המשיכי"}:
-            # User confirmed the topic with no design preference → default black
             return _process_content(user, data, business, stored_topic)
         if color_in_msg and len(msg.split()) <= 3:
-            # User gave only color preference → use stored topic with that color
             updated = {**data, "color_pref": color_in_msg}
             update_conversation_flow(user.id, "carousel_creation", updated)
             return _process_content(user, updated, business, stored_topic)
@@ -267,7 +311,7 @@ def _handle_content(user, data: dict, business, msg: str) -> str:
             "לדוג׳: *רקע שחור* / *רקע לבן* — אם אין העדפה אעלה עם רקע שחור."
         )
 
-    # If the message is ONLY a color preference (no stored topic and no content), store it and ask for text.
+    # Color-only message (no content) — store preference, ask for text
     if color_in_msg and len(msg.split()) <= 3 and not stored_topic:
         color_word = "לבן" if color_in_msg == "white" else "שחור"
         update_conversation_flow(user.id, "carousel_creation", {
