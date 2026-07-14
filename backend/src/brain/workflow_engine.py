@@ -116,6 +116,50 @@ def is_valid_cta(msg: str) -> bool:
     )
 
 
+# ─── Execution-point detection ────────────────────────────────────────────────
+
+# What each flow NEEDS stored in flow_data before it can execute.
+_EXECUTION_REQUIREMENTS: dict[str, set] = {
+    "carousel_creation": {"slides"},
+    "post_creation":     {"caption"},
+    "image_post":        {"image_url"},
+    "story_creation":    set(),   # execution driven by image delivery
+    "reel_creation":     set(),   # execution driven by video delivery
+}
+
+
+def reached_execution_point(flow: str, flow_data: dict) -> bool:
+    """
+    True when the flow has gathered enough data to execute without asking more questions.
+
+    Called by flow handlers before deciding whether to show a question or run the task.
+    Design principle: once this returns True, the only valid responses are
+    approval / color / edit — never a new question about the core content.
+    """
+    required = _EXECUTION_REQUIREMENTS.get(flow, set())
+    return all(flow_data.get(k) for k in required) if required else False
+
+
+def what_is_missing(flow: str, flow_data: dict) -> list:
+    """Returns the list of required fields not yet collected."""
+    required = _EXECUTION_REQUIREMENTS.get(flow, set())
+    return [k for k in required if not flow_data.get(k)]
+
+
+def detect_color_preference(msg: str) -> str:
+    """
+    Extract a black/white color preference from a message.
+    Returns 'black', 'white', or None.
+    Used to skip the color question when the user already stated a preference.
+    """
+    ml = msg.lower()
+    if any(w in ml for w in {"לבן", "⬜", "white", "בהיר", "bright", "light"}):
+        return "white"
+    if any(w in ml for w in {"שחור", "⬛", "black", "כהה", "dark"}):
+        return "black"
+    return None
+
+
 def step_label(flow: str, step: str) -> str:
     """Returns a one-line task status summary: '📋 קרוסלה | 📍 בחירת כותרת'"""
     _FLOWS = {

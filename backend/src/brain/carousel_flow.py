@@ -24,7 +24,7 @@ from src.specialists.memory.models import User, Business
 from src.specialists.memory.engine import update_conversation_flow, clear_conversation_flow
 from src.brain.workflow_engine import (
     classify_intent, is_pure_command, is_valid_hook, is_valid_cta,
-    active_task_reminder, looks_like_topic,
+    active_task_reminder, looks_like_topic, detect_color_preference,
 )
 
 _API_URL = "https://api.anthropic.com/v1/messages"
@@ -91,8 +91,8 @@ def handle_carousel_flow(user, state, business, message: str, language: str = "h
             preview = _format_structure_preview(slides)
             return (
                 f"ממשיכים! הנה המבנה ({len(slides)} דפים):\n\n{preview}\n\n"
-                "⬛ ליצור עם רקע שחור\n"
-                "⬜ ליצור עם רקע לבן\n"
+                "⬛ פרסמי (רקע שחור)\n"
+                "⬜ פרסמי עם רקע לבן\n"
                 "✏️ ערכי דף [מספר]"
             )
         # No slides yet — treat current message as content
@@ -122,6 +122,17 @@ def _handle_content(user, data: dict, business, msg: str) -> str:
             "אבצע: הגהה • חלוקה לדפים • כותרת • הנעה לפעולה"
         )
 
+    # If the message is ONLY a color preference (short: "רקע לבן", "שחור"), store it and ask for text.
+    # This prevents "רקע לבן" from being used as carousel content.
+    color_only = detect_color_preference(msg) and len(msg.split()) <= 3
+    if color_only:
+        color = detect_color_preference(msg)
+        color_word = "לבן" if color == "white" else "שחור"
+        update_conversation_flow(user.id, "carousel_creation", {
+            **data, "color_pref": color
+        })
+        return f"שמרתי: רקע {color_word}.\n\nשלחי את הטקסט לקרוסלה:"
+
     return _process_content(user, data, business, msg)
 
 
@@ -129,67 +140,88 @@ def _process_content(user, data: dict, business, msg: str) -> str:
     """
     Core engine: receives text or topic, does ALL carousel work in one shot.
 
-    Internal checks before generating response:
-    1. Is this a topic (short phrase) or actual content text?
-    2. Do we need to write content, or proofread user's text?
-    3. Generate hook + CTA auto-selected (user can change later)
-    4. Split into slides
-    5. Return full structure — no more questions needed
+    Execution Point logic (pre-response checklist):
+    1. Is this a topic phrase or actual content text?
+    2. Generate slides + hook + CTA via single Claude call
+    3. If Claude fails for a topic → ask for actual text (don't loop)
+    4. If Claude fails for text → use mechanical split (never fail)
+    5. If color was stated anywhere → auto-publish, skip approval step
     """
     brand   = _bval(business, "brand_name",    "העסק")
     what_do = _bval(business, "what_you_do",   "")
     style   = _bval(business, "writing_style", "חמים ואישי")
 
-    is_topic = looks_like_topic(msg)
+    is_topic    = looks_like_topic(msg)
+    color_in_msg = detect_color_preference(msg)
 
-    # Single Claude call that returns slides + hooks + CTAs
+    # Inherit color stored from a previous message in this session
+    color_pref = color_in_msg or data.get("color_pref")
+
+    # Single Claude call: slides + hooks + CTAs
     structure = _generate_all(msg, is_topic, brand, what_do, style)
+
+    if not structure and is_topic:
+        # Topic + Claude unavailable → we cannot write the content; ask for text.
+        # Do NOT reset to awaiting_content in a loop — give a clear, one-time message.
+        update_conversation_flow(user.id, "carousel_creation", {
+            **data,
+            "step":       "awaiting_content",
+            "color_pref": color_pref,
+        })
+        return (
+            "לא הצלחתי לכתוב תוכן עכשיו.\n\n"
+            "שלחי את הטקסט המלא ואני אחלק לדפים."
+        )
+
+    # If Claude failed for text input → mechanical split (never returns empty for text)
     if not structure:
-        update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
-        return "לא הצלחתי לייצר תוכן — נסי שוב."
+        structure = _mechanical_structure(msg)
 
     body_slides = structure.get("body_slides", [])
     hooks       = structure.get("hooks", [])
     ctas        = structure.get("ctas", [])
 
+    # Guarantee at least one slide — absolute floor
     if not body_slides:
-        update_conversation_flow(user.id, "carousel_creation", {**data, "step": "awaiting_content"})
-        return "לא הצלחתי לחלק את הטקסט לדפים — נסי שוב."
+        body_slides = [msg[:200]]
 
-    # Auto-select first hook and CTA (user can edit later)
     hook = hooks[0] if hooks else body_slides[0][:40]
     cta  = ctas[0]  if ctas  else "שתפי עם מי שזה רלוונטי לה"
 
     all_slides = [hook] + body_slides + [cta]
 
     update_conversation_flow(user.id, "carousel_creation", {
-        "step":      "awaiting_approval",
-        "slides":    all_slides,
-        "body_text": msg,
-        "hooks":     hooks,
-        "ctas":      ctas,
-        "topic":     msg if is_topic else "",
+        "step":       "awaiting_approval",
+        "slides":     all_slides,
+        "body_text":  msg,
+        "hooks":      hooks,
+        "ctas":       ctas,
+        "topic":      msg if is_topic else "",
+        "color_pref": color_pref,
     })
+
+    # Execution Point reached + color already known → publish immediately, no more questions
+    if color_pref:
+        return _publish(user, business, all_slides, color_pref)
 
     preview = _format_structure_preview(all_slides)
     return (
         f"הקרוסלה מוכנה ({len(all_slides)} דפים):\n\n"
         f"{preview}\n\n"
-        "⬛ ליצור עם רקע שחור\n"
-        "⬜ ליצור עם רקע לבן\n"
-        "✏️ ערכי דף [מספר] — לשינויים\n"
+        "⬛ פרסמי (רקע שחור)\n"
+        "⬜ פרסמי עם רקע לבן\n"
+        "✏️ ערכי דף [מספר]\n"
         "💾 שמרי כטיוטה"
     )
 
 
 def _handle_approval(user, data: dict, business, msg: str) -> str:
     """
-    Internal checks:
-    1. Color selection = immediate publish (no separate step)
-    2. Edit request = route to slide_edit
-    3. Change hook = show alternatives (stored in data.hooks)
-    4. Change CTA = show alternatives (stored in data.ctas)
-    5. Off-topic = remind user of active task
+    Execution Point: slides already exist in flow_data.
+    Only valid actions here: publish (color), edit, draft.
+    Never ask questions about content that was already provided.
+
+    Color default: black — "כן"/"פרסמי" publishes with black without asking.
     """
     slides = data.get("slides", [])
     intent = classify_intent(msg, "awaiting_approval")
@@ -198,17 +230,29 @@ def _handle_approval(user, data: dict, business, msg: str) -> str:
         clear_conversation_flow(user.id)
         return "הקרוסלה בוטלה."
 
-    # Color = publish
-    if any(w in msg for w in {"שחור", "⬛", "black", "dark", "כהה", "1"}):
-        return _publish(user, business, slides, "black")
-    if any(w in msg for w in {"לבן", "⬜", "white", "light", "בהיר", "2"}):
-        return _publish(user, business, slides, "white")
+    # Guard: if state was somehow lost, don't loop
+    if not slides:
+        clear_conversation_flow(user.id)
+        return "אירעה שגיאה — אנא שלחי *פוסט* להתחלה מחדש."
 
-    # Save as draft
+    # ── Color → publish ────────────────────────────────────────────────────────
+    color = detect_color_preference(msg)
+    if color:
+        return _publish(user, business, slides, color)
+
+    # ── "כן" / "פרסמי" / approve → publish with default black ─────────────────
+    # This is the Execution Point: no more color question.
+    # User can always specify "⬜ לבן" if they want white.
+    _APPROVE_WORDS = {"כן", "אישור", "אשרי", "לפרסם", "פרסמי", "בסדר", "✅", "go", "ok"}
+    stored_color = data.get("color_pref", "black")
+    if intent == "approve" or msg.strip().lower() in _APPROVE_WORDS:
+        return _publish(user, business, slides, stored_color)
+
+    # ── Save as draft ──────────────────────────────────────────────────────────
     if "💾" in msg or "טיוטה" in msg:
         return _save_draft(user)
 
-    # Edit specific slide by number
+    # ── Edit specific slide by number ─────────────────────────────────────────
     match = re.search(r"(\d+)", msg)
     if match and any(w in msg for w in {"ערכי", "דף", "שנה", "ערוך", "תשני"}):
         idx = int(match.group(1)) - 1
@@ -219,7 +263,7 @@ def _handle_approval(user, data: dict, business, msg: str) -> str:
             return f"דף {idx + 1} כרגע:\n\n{slides[idx]}\n\nכתבי את הגרסה החדשה:"
         return f"לא נמצא דף {idx + 1} — יש {len(slides)} דפים בסך הכל."
 
-    # Change hook → slide 1
+    # ── Change hook (first slide) ──────────────────────────────────────────────
     if ("כותרת" in msg or "hook" in msg.lower() or "ראשון" in msg) and \
        any(w in msg for w in {"שני", "שנה", "ערכי", "אחרת", "חדשה"}):
         hooks = data.get("hooks", [])
@@ -234,7 +278,7 @@ def _handle_approval(user, data: dict, business, msg: str) -> str:
         })
         return f"כותרת נוכחית:\n\n{slides[0]}\n\nכתבי כותרת חדשה:"
 
-    # Change CTA → last slide
+    # ── Change CTA (last slide) ────────────────────────────────────────────────
     if ("הנעה" in msg or "cta" in msg.lower() or "אחרון" in msg) and \
        any(w in msg for w in {"שני", "שנה", "ערכי", "אחרת", "חדשה"}):
         last_idx = len(slides) - 1
@@ -250,15 +294,11 @@ def _handle_approval(user, data: dict, business, msg: str) -> str:
         })
         return f"הנעה לפעולה נוכחית:\n\n{slides[last_idx]}\n\nכתבי הנעה חדשה:"
 
-    # Approve without color specified
-    if intent == "approve" or msg in {"כן", "אשרי", "לפרסם", "פרסמי"}:
-        return "⬛ שחור או ⬜ לבן?"
-
-    # Off-topic or unclear → remind and re-show
+    # ── Off-topic / unclear → re-show structure (no new question) ─────────────
     preview = _format_structure_preview(slides)
     return (
         f"הקרוסלה מוכנה ({len(slides)} דפים):\n\n{preview}\n\n"
-        "⬛ שחור | ⬜ לבן | ✏️ ערכי דף [מספר] | 💾 טיוטה"
+        "⬛ פרסמי (רקע שחור) | ⬜ רקע לבן | ✏️ ערכי דף [מספר] | 💾 טיוטה"
     )
 
 
@@ -411,13 +451,64 @@ def _generate_all(content: str, is_topic: bool, brand: str,
             except Exception as e:
                 print(f"[CAROUSEL] JSON parse error: {repr(e)} raw={raw[:200]}")
 
-    # Fallback: individual calls
+    # Fallback: individual Claude calls
     print("[CAROUSEL] falling back to individual Claude calls")
-    body = _generate_body(content, brand, what_do, style) if is_topic else content
+    if is_topic:
+        body = _generate_body(content, brand, what_do, style)
+        if not body:
+            # Topic + Claude down → cannot generate content; caller handles this
+            return None
+    else:
+        body = content
+
+    slides = _split_body_into_slides(body)
+    if not slides:
+        # Even individual split failed → mechanical split on original text
+        return _mechanical_structure(content) if not is_topic else None
+
     return {
-        "body_slides": _split_body_into_slides(body),
+        "body_slides": slides,
         "hooks":       _generate_hook_suggestions(content[:60], body, brand),
         "ctas":        _generate_cta_suggestions(brand, what_do),
+    }
+
+
+# ─── Mechanical fallback (no Claude required) ─────────────────────────────────
+
+def _mechanical_structure(text: str) -> dict:
+    """
+    Build carousel structure from user text WITHOUT any Claude call.
+    Used when Claude is completely unavailable but user provided actual content.
+    Always returns a non-empty body_slides list.
+    """
+    # Try splitting by explicit line breaks first
+    lines = [l.strip().lstrip("-•*0123456789. ") for l in text.split("\n") if len(l.strip()) > 4]
+
+    if len(lines) >= 2:
+        body_slides = lines[:4]
+    else:
+        # Single paragraph: split by sentence-ending punctuation
+        raw_sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        sentences = [s.strip() for s in raw_sentences if s.strip()]
+
+        if len(sentences) <= 1:
+            # One long sentence or very short text: use as one slide
+            body_slides = [text[:200]]
+        elif len(sentences) <= 4:
+            body_slides = sentences
+        else:
+            # Group sentences into ~3 slides
+            chunk = max(1, len(sentences) // 3)
+            body_slides = []
+            for i in range(0, len(sentences), chunk):
+                body_slides.append(" ".join(sentences[i:i + chunk]))
+            body_slides = body_slides[:4]
+
+    hook_text = body_slides[0][:50] if body_slides else text[:50]
+    return {
+        "body_slides": body_slides,
+        "hooks":       [hook_text],
+        "ctas":        ["שתפי עם מי שצריכה לשמוע"],
     }
 
 
