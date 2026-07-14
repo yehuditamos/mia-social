@@ -436,8 +436,8 @@ def _process_content(user, data: dict, business, msg: str) -> str:
     return (
         f"הקרוסלה מוכנה ({len(all_slides)} דפים):{proofread_note}\n\n"
         f"{preview}\n\n"
-        "⬛ פרסמי (רקע שחור)\n"
-        "⬜ פרסמי עם רקע לבן\n"
+        "⬛ פרסמי — ברירת מחדל, רקע שחור\n"
+        "⬜ פרסמי לבן — רקע לבן\n"
         "✏️ ערכי דף [מספר]\n"
         "💾 שמרי כטיוטה"
     )
@@ -538,7 +538,9 @@ def _handle_approval(user, data: dict, business, msg: str) -> str:
     preview = _format_structure_preview(slides)
     return (
         f"הקרוסלה מוכנה ({len(slides)} דפים):\n\n{preview}\n\n"
-        "⬛ פרסמי (רקע שחור) | ⬜ רקע לבן | ✏️ ערכי דף [מספר] | 💾 טיוטה"
+        "⬛ פרסמי — ברירת מחדל שחור\n"
+        "⬜ פרסמי לבן — רקע לבן\n"
+        "✏️ ערכי דף [מספר] | 💾 טיוטה"
     )
 
 

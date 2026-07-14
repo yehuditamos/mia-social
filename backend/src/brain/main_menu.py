@@ -71,14 +71,16 @@ def _is_opener(msg: str) -> bool:
     return False
 
 
-def _opener_message() -> str:
+def _opener_message(name: str = "") -> str:
+    name_part = f" {name}" if name else ""
     return (
-        "מה עושים עכשיו? 📋\n\n"
-        "• פוסט / קרוסלה\n"
-        "• סטורי\n"
-        "• ריל\n"
-        "• תכנון שבועי / חודשי\n\n"
-        "כתבי מה על הפרק ואני כאן."
+        f"היי{name_part}! איזה כיף שאת קופצת לבקר 💜\n\n"
+        "מה אני יכולה לעשות בשבילך עכשיו?\n\n"
+        "📸 פוסט / קרוסלה\n"
+        "🎬 סטורי\n"
+        "🎥 ריל\n"
+        "📅 תכנון שבועי / חודשי\n\n"
+        "כתבי מה על הפרק ואני כאן 🎉"
     )
 
 _UPLOAD_VERBS = {"תעלי", "פרסמי", "העלי", "תפרסמי", "תעלה", "העלה", "שלחי ל"}
@@ -139,7 +141,7 @@ def _detect_intent(message: str) -> str:
 def handle_post_onboarding(user: User, business: Optional[Business], message: str, language: str = "he") -> str:
     # Greetings and idle openers → home screen ("מה עושים עכשיו?")
     if _is_opener(message):
-        return _opener_message()
+        return _opener_message(user.name or "")
 
     intent = _detect_intent(message)
 

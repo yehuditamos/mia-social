@@ -8,22 +8,21 @@ _APPROVE = {"כן", "yes", "אוקיי", "אוקי", "יופי", "מעולה", "
 _CANCEL = {"לא", "בטל", "ביטול", "בטלי", "❌", "no", "cancel"}
 
 _STYLE_MAP = {
-    "1": "plain", "רגיל": "plain", "כמות שהיא": "plain",
-    "2": "caption", "כיתוב": "caption", "טקסט": "caption",
+    "1": "plain", "רגיל": "plain", "כמות שהיא": "plain", "ללא שינוי": "plain", "בלי שינוי": "plain",
+    "2": "caption", "כיתוב": "caption", "טקסט": "caption", "עם טקסט": "caption",
     "3": "design", "עיצוב": "design", "מסגרת": "design", "פילטר": "design",
-    "4": "full", "הכל": "full", "מלא": "full",
+    "4": "full", "הכל": "full", "מלא": "full", "עם הכל": "full",
 }
 
 _FILTER_MAP = {
     "1": "warm", "חמים": "warm", "חם": "warm",
-    "2": "cool", "קריר": "cool",
-    "3": "bw", "שחור לבן": "bw", "שחור-לבן": "bw",
-    "4": "vintage", "וינטאג": "vintage", "וינטג'": "vintage",
-    "5": "none", "ללא": "none", "בלי": "none",
+    "2": "cool", "קריר": "cool", "קר": "cool",
+    "3": "bw", "שחור לבן": "bw", "שחור-לבן": "bw", "bw": "bw",
+    "4": "vintage", "וינטאג": "vintage", "וינטג'": "vintage", "vintage": "vintage",
+    "5": "none", "ללא": "none", "בלי": "none", "רגיל": "none",
 }
 
 _STYLE_MENU = (
-    "ראיתי את התמונה 📸\n"
     "בחרי סגנון לסטורי:\n\n"
     "1️⃣ פרסמי כמות שהיא\n"
     "2️⃣ הוסיפי כיתוב\n"
@@ -47,10 +46,12 @@ def start_story_flow(user: User, business: Business, media_id: str, language: st
 
     media_url = None
     media_kind = "image"
+    media_b64_stored = None
+    mime_type_stored = None
     try:
-        media_b64, mime_type = download_media(media_id)
-        media_url = upload_image(media_b64, mime_type, media_id)
-        media_kind = "video" if mime_type.startswith("video/") else "image"
+        media_b64_stored, mime_type_stored = download_media(media_id)
+        media_url = upload_image(media_b64_stored, mime_type_stored, media_id)
+        media_kind = "video" if mime_type_stored.startswith("video/") else "image"
         print(f"[STORY] uploaded kind={media_kind} url={media_url}")
     except Exception as e:
         print(f"[STORY FAIL step=media_setup] {repr(e)}")
@@ -67,12 +68,27 @@ def start_story_flow(user: User, business: Business, media_id: str, language: st
         })
         return "ראיתי את הסרטון 🎬\nלפרסם כסטורי באינסטגרם?\n\n✅ כן\n❌ ביטול"
 
+    # Describe image for accessibility before asking for style
+    description = ""
+    if media_b64_stored and mime_type_stored:
+        try:
+            from src.brain.free_chat import describe_image_accessibility
+            description = describe_image_accessibility(media_b64_stored, mime_type_stored)
+        except Exception as e:
+            print(f"[STORY] vision error: {repr(e)}")
+
     update_conversation_flow(user.id, "story_creation", {
         "step": "awaiting_style",
         "media_url": media_url,
         "media_kind": "image",
     })
-    return _STYLE_MENU
+
+    desc_line = f"\n🖼 מיה רואה: {description}\n" if description else ""
+    return (
+        f"קיבלתי! 🤩 יאללה בואי נעשה סטורי 🎉"
+        f"{desc_line}\n\n"
+        f"{_STYLE_MENU}"
+    )
 
 
 def handle_story_flow(user: User, state: ConversationState, business: Business,
@@ -105,7 +121,12 @@ def _handle_style(user: User, state: ConversationState, business: Business,
 
     style = _STYLE_MAP.get(msg)
     if not style:
-        return f"לא הבנתי 😊\n{_STYLE_MENU}"
+        for key, val in _STYLE_MAP.items():
+            if key in msg:
+                style = val
+                break
+    if not style:
+        return f"לא הבנתי 😊\n\n{_STYLE_MENU}"
 
     if style == "plain":
         update_conversation_flow(user.id, "story_creation", {
@@ -176,7 +197,12 @@ def _handle_filter(user: User, state: ConversationState, business: Business,
 
     filter_name = _FILTER_MAP.get(msg)
     if not filter_name:
-        return f"לא הבנתי 😊\n{_FILTER_MENU}"
+        for key, val in _FILTER_MAP.items():
+            if key in msg:
+                filter_name = val
+                break
+    if not filter_name:
+        return f"לא הבנתי 😊\n\n{_FILTER_MENU}"
 
     style = flow_data.get("style", "design")
     caption = flow_data.get("caption") if style == "full" else None
