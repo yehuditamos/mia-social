@@ -15,6 +15,7 @@ from src.brain.post_flow import handle_post_flow
 from src.brain.story_flow import handle_story_flow, start_story_flow
 from src.brain.image_flow import handle_image_flow, start_image_flow
 from src.brain.reel_flow import handle_reel_flow, start_reel_flow
+from src.brain.carousel_flow import handle_carousel_flow
 from src.brain.dev_commands import is_dev_command, handle_dev_command
 from src.db.repositories.social_account import SocialAccountRepository
 from src.db.repositories.auth_session import AuthSessionRepository
@@ -132,11 +133,14 @@ def process_message(phone_number: str, message: str) -> str:
                 from src.brain.idea_bank import save_idea_from_description
                 return save_idea_from_description(user, business, message)
 
+            if state.flow == "carousel_creation":
+                return handle_carousel_flow(user, state, business, message, DEFAULT_LANGUAGE)
+
             if state.flow == "text_story_creation":
                 return _handle_text_story_flow(user, business, state, message, DEFAULT_LANGUAGE)
 
-            if state.flow == "accessibility_image_confirm":
-                return _handle_accessibility_confirm(user, business, message, DEFAULT_LANGUAGE)
+            if state.flow == "accessibility_fix_description":
+                return _handle_accessibility_fix_description(user, business, state, message, DEFAULT_LANGUAGE)
             if state.flow == "accessibility_choose_type":
                 return _handle_accessibility_type_choice(user, business, message, DEFAULT_LANGUAGE)
             if state.flow == "post_creation":
@@ -188,7 +192,9 @@ def _handle_accessibility_type_choice(user, business, message: str, language: st
     from src.specialists.memory.engine import get_conversation_state, clear_conversation_flow, update_conversation_flow
 
     state = get_conversation_state(user.id)
-    image_id = (state.flow_data or {}).get("image_id", "") if state else ""
+    flow_data = (state.flow_data or {}) if state else {}
+    image_id = flow_data.get("image_id", "")
+    description = flow_data.get("description", "")
     msg = message.strip().lower()
 
     if msg in {"1", "פוסט", "1️⃣"}:
@@ -197,8 +203,19 @@ def _handle_accessibility_type_choice(user, business, message: str, language: st
     if msg in {"2", "סטורי", "story", "סטוריז", "2️⃣"}:
         update_conversation_flow(user.id, "story_creation", {"step": "awaiting_image"})
         return start_story_flow(user, business, image_id, language)
+    if msg in {"3", "לשנות", "שנה", "תשני", "שינוי", "3️⃣"}:
+        update_conversation_flow(user.id, "accessibility_fix_description", {
+            "image_id": image_id,
+            "description": description,
+        })
+        return "מה חסר בתיאור? כתבי מה צריך לשנות או להוסיף:"
 
-    return "מה תרצי לעשות עם התמונה?\n\n1️⃣ פוסט\n2️⃣ סטורי"
+    return (
+        "מה תרצי לעשות עם התמונה?\n\n"
+        "1️⃣ ליצור פוסט\n"
+        "2️⃣ ליצור סטורי\n"
+        "3️⃣ לשנות את התיאור"
+    )
 
 
 def _describe_image_for_blind(user, business, image_id: str, language: str) -> str:
@@ -213,30 +230,49 @@ def _describe_image_for_blind(user, business, image_id: str, language: str) -> s
         print(f"[ACCESSIBILITY] image describe error: {repr(e)}")
         return start_image_flow(user, business, image_id, language)
 
-    update_conversation_flow(user.id, "accessibility_image_confirm", {"image_id": image_id})
-    return f"🖼 מיה רואה:\n{description}\n\nהתמונה נכונה? (כן / לא)"
+    # Skip "is image correct?" — the user cannot verify visually
+    # Go directly to action selection, with option to correct the description
+    update_conversation_flow(user.id, "accessibility_choose_type", {
+        "image_id": image_id,
+        "description": description,
+    })
+    return (
+        f"🖼 מיה רואה:\n{description}\n\n"
+        "זה התיאור שישמש לעבודה עם התמונה. מה תרצי לעשות?\n\n"
+        "1️⃣ ליצור פוסט\n"
+        "2️⃣ ליצור סטורי\n"
+        "3️⃣ לשנות את התיאור"
+    )
 
 
-def _handle_accessibility_confirm(user, business, message: str, language: str) -> str:
-    from src.specialists.memory.engine import get_conversation_state, clear_conversation_flow
+def _handle_accessibility_fix_description(user, business, state, message: str, language: str) -> str:
+    from src.specialists.memory.engine import update_conversation_flow
+    from src.brain.free_chat import describe_image_accessibility
+    from src.whatsapp.media import download_media
 
-    state = get_conversation_state(user.id)
-    image_id = (state.flow_data or {}).get("image_id", "") if state else ""
-    msg = message.strip().lower()
+    flow_data = (state.flow_data or {})
+    image_id = flow_data.get("image_id", "")
+    original_desc = flow_data.get("description", "")
+    correction = message.strip()
 
-    _CONFIRM = {"כן", "yes", "✅", "אישור", "נכון", "בדיוק", "כן זה", "כן תמשיכי"}
-    _CANCEL = {"לא", "no", "❌", "לא זה", "אחרת", "שגוי"}
+    # Build an improved description using the user's correction note
+    try:
+        media_b64, mime_type = download_media(image_id)
+        new_desc = describe_image_accessibility(media_b64, mime_type, extra_note=correction)
+    except Exception:
+        new_desc = f"{original_desc}\n\n(עדכון לפי בקשתך: {correction})"
 
-    if msg in _CONFIRM or any(w in msg for w in {"כן", "yes", "נכון", "בדיוק"}):
-        if image_id:
-            from src.specialists.memory.engine import update_conversation_flow
-            update_conversation_flow(user.id, "accessibility_choose_type", {"image_id": image_id})
-            return "מה תרצי לעשות עם התמונה?\n\n1️⃣ פוסט\n2️⃣ סטורי"
-        clear_conversation_flow(user.id)
-        return "בסדר, שלחי את התמונה שוב 💜"
-
-    clear_conversation_flow(user.id)
-    return "בסדר 💜 שלחי תמונה אחרת."
+    update_conversation_flow(user.id, "accessibility_choose_type", {
+        "image_id": image_id,
+        "description": new_desc,
+    })
+    return (
+        f"🖼 תיאור מעודכן:\n{new_desc}\n\n"
+        "מה תרצי לעשות עם התמונה?\n\n"
+        "1️⃣ ליצור פוסט\n"
+        "2️⃣ ליצור סטורי\n"
+        "3️⃣ לשנות את התיאור שוב"
+    )
 
 
 _STORY_CMD_WORDS = {"תכתבי", "כתבי", "תרשמי", "רשמי", "תכתוב", "כתוב", "תציגי", "הציגי"}

@@ -313,12 +313,12 @@ def _build_connection_feedback(user_token: str, assets: dict) -> str:
     pages = assets.get("pages", [])
     ig_accounts = assets.get("instagram_accounts", [])
 
-    lines = ["✅ התחברת בהצלחה!\n"]
+    lines = ["🎉 החשבונות מחוברים בהצלחה!\n"]
 
     if pages:
         lines.append(f"📘 פייסבוק: {', '.join(p['name'] for p in pages)}")
         if missing_facebook:
-            lines.append(f"   ⚠️ חסרה הרשאה לפרסום: {', '.join(missing_facebook)}")
+            lines.append(f"   ⚠️ חסרה הרשאת פרסום: {', '.join(missing_facebook)}")
         else:
             lines.append("   ✅ הרשאות פרסום תקינות")
 
@@ -332,6 +332,15 @@ def _build_connection_feedback(user_token: str, assets: dict) -> str:
 
     if not pages and not ig_accounts:
         lines.append("⚠️ לא נמצאו דפים או חשבונות אינסטגרם מחוברים.")
+
+    lines.append(
+        "\nמה תרצי לעשות עכשיו?\n\n"
+        "1️⃣ לכתוב פוסט חדש לאינסטגרם\n"
+        "2️⃣ להעלות תמונה ולהוסיף כיתוב\n"
+        "3️⃣ ליצור סטורי\n"
+        "4️⃣ ליצור ריל\n"
+        "5️⃣ לתכנן גאנט חודשי"
+    )
 
     return "\n".join(lines)
 

@@ -109,7 +109,7 @@ def _call_claude(api_key: str, system: str, message: str, max_tokens: int = 350)
     return data["content"][0]["text"].strip()
 
 
-def describe_image_accessibility(image_b64: str, mime_type: str) -> str:
+def describe_image_accessibility(image_b64: str, mime_type: str, extra_note: str = None) -> str:
     """Describe an image in Hebrew for a blind user using Claude Vision."""
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -117,6 +117,15 @@ def describe_image_accessibility(image_b64: str, mime_type: str) -> str:
 
     # Strip codec suffix for safety
     base_mime = mime_type.split(";")[0].strip()
+
+    system = (
+        "תארי את התמונה בעברית ישראלית ברורה ופשוטה, "
+        "עבור משתמש עיוור שרוצה לדעת מה בתמונה לפני שמפרסם אותה. "
+        "ציוני: מה רואים, אנשים (תיאור כללי), צבעים עיקריים, מיקום, אווירה. "
+        "3-4 משפטים קצרים. אל תזכירי שאת AI."
+    )
+    if extra_note:
+        system += f"\n\nהמשתמשת ביקשה להוסיף/לשנות: {extra_note}. שלבי את זה בתיאור."
 
     try:
         res = requests.post(
@@ -129,12 +138,7 @@ def describe_image_accessibility(image_b64: str, mime_type: str) -> str:
             json={
                 "model": _MODEL,
                 "max_tokens": 300,
-                "system": (
-                    "תארי את התמונה בעברית ישראלית ברורה ופשוטה, "
-                    "עבור משתמש עיוור שרוצה לדעת מה בתמונה לפני שמפרסם אותה. "
-                    "ציוני: מה רואים, אנשים (תיאור כללי), צבעים עיקריים, מיקום, אווירה. "
-                    "3-4 משפטים קצרים. אל תזכירי שאת AI."
-                ),
+                "system": system,
                 "messages": [{
                     "role": "user",
                     "content": [

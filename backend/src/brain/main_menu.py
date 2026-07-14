@@ -88,8 +88,8 @@ def handle_post_onboarding(user: User, business: Optional[Business], message: st
     intent = _detect_intent(message)
 
     if intent == "create_post":
-        update_conversation_flow(user.id, "post_creation", {"step": "awaiting_mode"})
-        return "בואי ניצור פוסט! 📝\n\n1️⃣ כתבי עבורי — תאריי נושא ומיה תכתוב\n2️⃣ אני אכתוב לבד — מיה תגהה לפני פרסום"
+        update_conversation_flow(user.id, "carousel_creation", {"step": "awaiting_mode"})
+        return "בואי ניצור פוסט לאינסטגרם! 📝\n\n1️⃣ כתבי עבורי — תאריי נושא ומיה תכתוב\n2️⃣ אני אכתוב לבד — מיה תגהה"
     if intent == "text_story":
         return _handle_text_story_start(user, message, language)
     if intent == "create_story":

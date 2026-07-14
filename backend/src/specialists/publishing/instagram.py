@@ -216,6 +216,90 @@ def publish_reel_to_instagram(ig_user_id: str, video_url: str,
     print(f"[REEL SUCCESS] reel_id={data2.get('id')}")
 
 
+def publish_carousel_to_instagram(ig_user_id: str, slide_urls: list, caption: str, access_token: str) -> str:
+    """Publish a multi-image carousel to Instagram. Returns post URL."""
+    print(f"[CAROUSEL] ig_user_id={ig_user_id} slides={len(slide_urls)}")
+
+    # Step 1: Create item containers for each slide
+    item_ids = []
+    for i, url in enumerate(slide_urls):
+        res = requests.post(
+            f"{_GRAPH}/{ig_user_id}/media",
+            data={
+                "image_url": url,
+                "is_carousel_item": "true",
+                "access_token": access_token,
+            },
+            timeout=30,
+        )
+        data = res.json()
+        print(f"[CAROUSEL] slide {i+1} container: status={res.status_code} body={res.text[:120]}")
+        if "error" in data:
+            raise RuntimeError(
+                f"[CAROUSEL FAIL slide={i+1}] "
+                f"code={data['error'].get('code')} "
+                f"message={data['error'].get('message')}"
+            )
+        item_ids.append(data["id"])
+
+    # Step 2: Create carousel container
+    res2 = requests.post(
+        f"{_GRAPH}/{ig_user_id}/media",
+        data={
+            "media_type": "CAROUSEL",
+            "children": ",".join(item_ids),
+            "caption": caption,
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    data2 = res2.json()
+    print(f"[CAROUSEL] carousel container: status={res2.status_code} body={res2.text[:120]}")
+    if "error" in data2:
+        raise RuntimeError(
+            f"[CAROUSEL FAIL container] "
+            f"code={data2['error'].get('code')} "
+            f"message={data2['error'].get('message')}"
+        )
+    carousel_id = data2["id"]
+
+    # Step 3: Poll for FINISHED
+    for attempt in range(10):
+        status_res = requests.get(
+            f"{_GRAPH}/{carousel_id}",
+            params={"fields": "status_code", "access_token": access_token},
+            timeout=15,
+        )
+        status_data = status_res.json()
+        status_code = status_data.get("status_code")
+        print(f"[CAROUSEL] poll attempt={attempt+1} status={status_code}")
+        if status_code == "FINISHED":
+            break
+        if status_code in ("ERROR", "EXPIRED"):
+            raise RuntimeError(f"[CAROUSEL FAIL poll] {status_data}")
+        time.sleep(3)
+    else:
+        raise RuntimeError(f"[CAROUSEL FAIL] Timed out waiting for FINISHED")
+
+    # Step 4: Publish
+    res3 = requests.post(
+        f"{_GRAPH}/{ig_user_id}/media_publish",
+        data={"creation_id": carousel_id, "access_token": access_token},
+        timeout=30,
+    )
+    data3 = res3.json()
+    print(f"[CAROUSEL] publish: status={res3.status_code} body={res3.text[:120]}")
+    if "error" in data3:
+        raise RuntimeError(
+            f"[CAROUSEL FAIL publish] "
+            f"code={data3['error'].get('code')} "
+            f"message={data3['error'].get('message')}"
+        )
+    post_id = data3.get("id", "")
+    print(f"[CAROUSEL SUCCESS] post_id={post_id}")
+    return f"https://www.instagram.com/p/{post_id}/"
+
+
 def reply_to_ig_comment(comment_id: str, text: str, access_token: str) -> None:
     res = requests.post(
         f"{_GRAPH}/{comment_id}/replies",
