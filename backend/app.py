@@ -1,4 +1,5 @@
 import os
+import threading
 import traceback
 from flask import Flask, request, jsonify, redirect
 from dotenv import load_dotenv
@@ -23,6 +24,50 @@ def _process(phone_number, text):
 def _send(phone_number, reply):
     from src.whatsapp.client import send_message
     send_message(phone_number, reply)
+
+
+def _process_and_send(phone_number: str, text: str) -> None:
+    try:
+        reply = _process(phone_number, text)
+        print("CHECKPOINT 7: process OK, reply length:", len(reply))
+    except Exception as e:
+        print("CHECKPOINT 7 FAILED: _process error:", repr(e))
+        return
+
+    try:
+        parts = reply.split("\n||||\n")
+        for part in parts:
+            output = part.strip()
+            if not output:
+                continue
+            if output.startswith("__send_image__:"):
+                image_url = output[len("__send_image__:"):]
+                from src.whatsapp.client import send_image
+                send_image(phone_number, image_url)
+            else:
+                _send(phone_number, output)
+        print("CHECKPOINT 8: send_message called, parts:", len(parts))
+    except Exception as e:
+        print("CHECKPOINT 8 FAILED: _send error:", repr(e))
+
+
+def _needs_background_image_edit(phone_number: str, message_type: str, text: str) -> bool:
+    from src.brain.image_edit_flow import is_image_edit_request
+
+    if message_type == "image":
+        _, marker, caption = text.partition("\n__caption__:")
+        return bool(marker and is_image_edit_request(caption))
+    if message_type != "text" or not is_image_edit_request(text):
+        return False
+
+    try:
+        from src.specialists.memory.engine import get_conversation_state, get_user
+        user = get_user(phone_number)
+        state = get_conversation_state(user.id) if user else None
+        return bool(state and state.flow == "awaiting_image_type")
+    except Exception as exc:
+        print(f"[IMAGE EDIT BACKGROUND] state check failed: {repr(exc)}")
+        return False
 
 
 @app.route("/health", methods=["GET"])
@@ -98,8 +143,12 @@ def receive_webhook():
     if message_type == "text":
         text = messages[0]["text"]["body"]
     elif message_type == "image":
-        image_id = messages[0].get("image", {}).get("id", "")
+        image_payload = messages[0].get("image", {})
+        image_id = image_payload.get("id", "")
+        image_caption = image_payload.get("caption", "").strip()
         text = f"__image__:{image_id}"
+        if image_caption:
+            text += f"\n__caption__:{image_caption}"
     elif message_type == "video":
         video_id = messages[0].get("video", {}).get("id", "")
         text = f"__video__:{video_id}"
@@ -123,28 +172,16 @@ def receive_webhook():
 
     print("CHECKPOINT 6: type:", message_type, "text:", text[:80])
 
-    try:
-        reply = _process(phone_number, text)
-        print("CHECKPOINT 7: process OK, reply length:", len(reply))
-    except Exception as e:
-        print("CHECKPOINT 7 FAILED: _process error:", repr(e))
-        return jsonify({"status": "received"}), 200
+    if _needs_background_image_edit(phone_number, message_type, text):
+        _send(phone_number, "קיבלתי 🎨 אני עורכת את התמונה ושומרת על האנשים והפרטים המקוריים. אשלח לך תצוגה מקדימה כשהיא מוכנה.")
+        threading.Thread(
+            target=_process_and_send,
+            args=(phone_number, text),
+            daemon=True,
+        ).start()
+        return jsonify({"status": "processing"}), 200
 
-    try:
-        parts = reply.split("\n||||\n")
-        for part in parts:
-            p = part.strip()
-            if not p:
-                continue
-            if p.startswith("__send_image__:"):
-                image_url = p[len("__send_image__:"):]
-                from src.whatsapp.client import send_image
-                send_image(phone_number, image_url)
-            else:
-                _send(phone_number, p)
-        print("CHECKPOINT 8: send_message called, parts:", len(parts))
-    except Exception as e:
-        print("CHECKPOINT 8 FAILED: _send error:", repr(e))
+    _process_and_send(phone_number, text)
 
     return jsonify({"status": "received"}), 200
 
