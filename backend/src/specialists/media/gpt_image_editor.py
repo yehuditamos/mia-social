@@ -11,7 +11,12 @@ _EDIT_URL = "https://api.openai.com/v1/images/edits"
 _MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
 
 
-def edit_for_story(image_b64: str, mime_type: str, instruction: str) -> str:
+def edit_for_story(
+    image_b64: str,
+    mime_type: str,
+    instruction: str,
+    business_context: str = "",
+) -> str:
     """Edit one user image and return a public URL suitable for preview/publishing."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -19,7 +24,7 @@ def edit_for_story(image_b64: str, mime_type: str, instruction: str) -> str:
 
     image_bytes = base64.b64decode(image_b64)
     extension = _extension_for(mime_type)
-    prompt = _build_prompt(instruction)
+    prompt = _build_prompt(instruction, business_context)
 
     response = requests.post(
         _EDIT_URL,
@@ -56,18 +61,41 @@ def edit_for_story(image_b64: str, mime_type: str, instruction: str) -> str:
     )
 
 
-def _build_prompt(instruction: str) -> str:
-    user_instruction = instruction.strip() or "ערכי את התמונה בצורה מקצועית ויפה לסטורי"
-    return f"""Create a polished, professional Instagram Story edit of the supplied image.
+def edit_story_from_url(image_url: str, instruction: str, business_context: str = "") -> str:
+    response = requests.get(image_url, timeout=30)
+    response.raise_for_status()
+    mime_type = response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
+    image_b64 = base64.b64encode(response.content).decode("utf-8")
+    return edit_for_story(image_b64, mime_type, instruction, business_context)
+
+
+def _build_prompt(instruction: str, business_context: str = "") -> str:
+    user_instruction = instruction.strip() or "צרי מהתמונה סטורי שלם ומוכן לפרסום"
+    context = business_context.strip() or "No additional business context was supplied."
+    return f"""You are the senior social media creative director and art director for this business.
+Create one complete, publication-ready Instagram Story from the supplied image. The owner should only need to approve it.
+
+Business context:
+{context}
 
 User request in Hebrew:
 {user_instruction}
+
+Creative standard:
+- Make the strongest professional creative decision independently. Do not ask the owner to choose a style, filter, layout or copy.
+- The result must feel intentional, premium, current and specific to the image and business, never like a generic template.
+- Build a clear visual hierarchy, purposeful composition, tasteful depth and a cohesive palette that supports the subject.
+- Avoid generic white frames, random gradients, heavy filters, clip-art decorations and filler emojis.
+- Treat phrases such as "סומכת עלייך", "תעשי מה שנראה לך", "תעצבי יפה" and "תעלי אותה ערוכה" as delegation instructions. NEVER print those phrases on the image.
+- If the user supplied literal copy inside quotation marks, use it. Otherwise decide whether copy improves the story.
+- If copy improves it, write one short, sharp Hebrew line based on the actual image and business goal, maximum 6 words. No generic motivational filler.
+- If accurate Hebrew cannot be rendered confidently, create a strong text-free visual instead of broken or invented text.
 
 Non-negotiable preservation rules:
 - Preserve every person's identity, exact facial features, body proportions, skin tone, pose and clothing.
 - Do not beautify, reshape, age, replace or invent a person.
 - Preserve existing logos, products and factual details unless the user explicitly requests changing them.
-- Do not add invented text. Preserve existing readable text as faithfully as possible.
+- Preserve existing readable text as faithfully as possible. Never invent dates, prices, claims or event details.
 - Improve only the visual treatment requested: composition, background, lighting, color, depth, framing and tasteful design details.
 - Keep the result photorealistic when the source is a photograph.
 - Compose for a vertical 9:16 Instagram Story with safe margins near the top and bottom.
