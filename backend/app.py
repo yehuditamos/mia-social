@@ -89,6 +89,22 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/admin/apply-mia-profile-picture", methods=["POST"])
+def apply_mia_profile_picture():
+    """One-purpose deployment hook; removed immediately after the profile is set."""
+    from src.whatsapp.client import update_business_profile_picture
+
+    image_path = os.path.join(
+        os.path.dirname(__file__), "assets", "mia-social-manager-profile.jpg"
+    )
+    try:
+        result = update_business_profile_picture(image_path)
+        return jsonify(result), 200
+    except Exception as exc:
+        print("PROFILE PICTURE UPDATE FAILED:", repr(exc))
+        return jsonify({"error": str(exc)}), 502
+
+
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
     mode = request.args.get("hub.mode")
