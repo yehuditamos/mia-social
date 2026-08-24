@@ -12,13 +12,33 @@ _APPROVE = {"כן", "מאשרת", "מאשר", "אישור", "פרסמי", "תע�
 _CANCEL = {"לא", "ביטול", "בטל", "בטלי", "❌", "cancel"}
 _EDIT_WORDS = {
     "ערכי", "ערוך", "עריכה", "ערוכה", "תערכי", "תערוך",
-    "עיצוב", "תעצבי", "מעוצבת", "שפרי", "תשפרי", "יפה",
+    "עיצוב", "תעצבי", "תעצב", "עצב", "מעוצבת", "שפרי", "תשפרי", "יפה",
+    "תכיני סטורי", "תעשי סטורי", "סטורי",
+}
+
+_DELEGATION_PHRASES = {
+    "סומכת עלייך", "סומך עלייך", "מה שנראה לך", "תחליטי את",
+    "תבחרי את", "תעשי מה שאת רוצה", "תגדילי ראש",
 }
 
 
 def is_image_edit_request(message: str) -> bool:
     normalized = message.strip().lower()
     return any(word in normalized for word in _EDIT_WORDS)
+
+
+def is_delegation_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    return any(phrase in normalized for phrase in _DELEGATION_PHRASES)
+
+
+def business_creative_context(business: Business) -> str:
+    return "\n".join([
+        f"Brand: {getattr(business, 'brand_name', '') or 'the business'}",
+        f"Business: {getattr(business, 'what_you_do', '') or 'not specified'}",
+        f"Writing style: {getattr(business, 'writing_style', '') or 'warm, direct and professional'}",
+        f"Business goals: {getattr(business, 'goals', '') or 'build trust and drive action'}",
+    ])
 
 
 def start_image_edit_flow(
@@ -32,7 +52,12 @@ def start_image_edit_flow(
 
     try:
         image_b64, mime_type = download_media(image_id)
-        edited_url = edit_for_story(image_b64, mime_type, instruction)
+        edited_url = edit_for_story(
+            image_b64,
+            mime_type,
+            instruction,
+            business_creative_context(business),
+        )
     except Exception as exc:
         print(f"[IMAGE EDIT FLOW] generation failed: {repr(exc)}")
         clear_conversation_flow(user.id)
