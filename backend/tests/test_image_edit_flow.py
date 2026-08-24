@@ -3,7 +3,12 @@ from unittest.mock import Mock, patch
 
 from src.brain.decision_layer import _parse_image_message
 from src.brain.image_edit_flow import is_delegation_request, is_image_edit_request
-from src.specialists.media.gpt_image_editor import _build_prompt, _extension_for, edit_for_story
+from src.specialists.media.gpt_image_editor import (
+    _build_prompt,
+    _extension_for,
+    _extract_required_copy,
+    edit_for_story,
+)
 
 
 class ImageEditIntentTests(unittest.TestCase):
@@ -41,6 +46,24 @@ class ImageEditorPromptTests(unittest.TestCase):
         self.assertIn("owner should only need to approve", prompt)
         self.assertIn("NEVER print those phrases", prompt)
         self.assertIn("MamaFitness", prompt)
+
+    def test_extracts_unquoted_copy_after_write_command(self):
+        instruction = (
+            "מיה יא אלופה תעלי סטורי לב שלי רק תכתבי "
+            "מקומות אחרונים לפילאטיס מזרן היום ב20:00 מי באה??"
+        )
+        self.assertEqual(
+            _extract_required_copy(instruction),
+            "מקומות אחרונים לפילאטיס מזרן היום ב20:00 מי באה??",
+        )
+
+    def test_prompt_locks_explicit_copy_without_extra_words(self):
+        prompt = _build_prompt(
+            "תעלי סטורי ורק תכתבי מקומות אחרונים לפילאטיס מזרן היום ב20:00 מי באה??"
+        )
+        self.assertIn("Exact required Hebrew copy (mandatory)", prompt)
+        self.assertIn("do not rewrite, shorten, translate, correct", prompt)
+        self.assertIn("מקומות אחרונים לפילאטיס מזרן היום ב20:00 מי באה??", prompt)
 
     def test_supported_extension(self):
         self.assertEqual(_extension_for("image/png"), "png")
