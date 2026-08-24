@@ -16,6 +16,11 @@ from src.brain.story_flow import handle_story_flow, start_story_flow
 from src.brain.image_flow import handle_image_flow, start_image_flow
 from src.brain.reel_flow import handle_reel_flow, start_reel_flow
 from src.brain.carousel_flow import handle_carousel_flow
+from src.brain.image_edit_flow import (
+    handle_image_edit_flow,
+    is_image_edit_request,
+    start_image_edit_flow,
+)
 from src.brain.dev_commands import is_dev_command, handle_dev_command
 from src.db.repositories.social_account import SocialAccountRepository
 from src.db.repositories.auth_session import AuthSessionRepository
@@ -106,7 +111,11 @@ def process_message(phone_number: str, message: str) -> str:
                     return _handle_ig_reply(user, rest)
 
             if message.startswith("__image__:"):
-                image_id = message.split(":", 1)[1]
+                image_id, image_instruction = _parse_image_message(message)
+                if image_instruction and is_image_edit_request(image_instruction):
+                    return start_image_edit_flow(
+                        user, business, image_id, image_instruction
+                    )
                 if state.flow == "story_creation":
                     return start_story_flow(user, business, image_id, DEFAULT_LANGUAGE)
                 if state.flow in ("accessibility_image_confirm", "accessibility_choose_type", "awaiting_image_type"):
@@ -128,7 +137,7 @@ def process_message(phone_number: str, message: str) -> str:
                 elif not state.flow:
                     from src.specialists.memory.engine import update_conversation_flow
                     update_conversation_flow(user.id, "awaiting_image_type", {"image_id": image_id})
-                    return "קיבלתי 📸 מה תרצי לעשות?\n\n1️⃣ פוסט\n2️⃣ סטורי"
+                    return "קיבלתי 📸 מה תרצי לעשות?\n\n1️⃣ פוסט\n2️⃣ סטורי\n3️⃣ עריכה חכמה והעלאה"
                 else:
                     return start_image_flow(user, business, image_id, DEFAULT_LANGUAGE)
 
@@ -164,6 +173,9 @@ def process_message(phone_number: str, message: str) -> str:
 
             if state.flow == "awaiting_image_type":
                 return _handle_image_type_choice(user, business, message, DEFAULT_LANGUAGE)
+
+            if state.flow == "image_edit":
+                return handle_image_edit_flow(user, state, business, message)
 
             if state.flow == "idea_capture":
                 from src.brain.idea_bank import save_idea_from_description
@@ -225,8 +237,16 @@ def _handle_image_type_choice(user, business, message: str, language: str) -> st
     if msg in {"2", "סטורי", "story", "סטוריז", "2️⃣"}:
         update_conversation_flow(user.id, "story_creation", {"step": "awaiting_image"})
         return start_story_flow(user, business, image_id, language)
+    if msg in {"3", "3️⃣", "עריכה", "עריכה חכמה"} or is_image_edit_request(message):
+        return start_image_edit_flow(user, business, image_id, message)
 
-    return "מה תרצי לעשות עם התמונה?\n\n1️⃣ פוסט\n2️⃣ סטורי"
+    return "מה תרצי לעשות עם התמונה?\n\n1️⃣ פוסט\n2️⃣ סטורי\n3️⃣ עריכה חכמה והעלאה"
+
+
+def _parse_image_message(message: str) -> tuple[str, str]:
+    payload = message[len("__image__:"):]
+    image_id, separator, caption = payload.partition("\n__caption__:")
+    return image_id.strip(), caption.strip() if separator else ""
 
 
 def _handle_accessibility_type_choice(user, business, message: str, language: str) -> str:
