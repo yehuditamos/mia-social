@@ -3,8 +3,8 @@ import requests
 from typing import Optional
 from src.specialists.memory.models import User, Business
 
-_API_URL = "https://api.anthropic.com/v1/messages"
-_MODEL = "claude-haiku-4-5-20251001"
+_API_URL = "https://api.openai.com/v1/responses"
+_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6")
 
 _CHAT_SYSTEM = """את מיה — מנהלת סושיאל מדיה ישראלית שעובדת עם {brand_name} דרך וואטסאפ.
 
@@ -52,7 +52,7 @@ _PLAN_SYSTEM = """את מיה — מנהלת סושיאל מדיה ישראלי�
 
 
 def handle_free_chat(user: User, business: Optional[Business], message: str) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return "מיה כאן 💜 שלחי תמונה/סרטון לפרסום, או שאלי אותי כל שאלה."
 
@@ -64,14 +64,14 @@ def handle_free_chat(user: User, business: Optional[Business], message: str) -> 
     )
 
     try:
-        return _call_claude(api_key, system, message, max_tokens=350)
+        return _call_openai(api_key, system, message, max_tokens=350)
     except Exception as e:
         print(f"[FREE_CHAT ERROR] {repr(e)}")
         return "מיה כאן 💜 תני לי רגע ונסי שוב."
 
 
 def handle_weekly_plan(user: User, business: Optional[Business]) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return "מצטערת, לא יכולה לייצר תוכנית כרגע. נסי שוב בעוד רגע."
 
@@ -83,7 +83,7 @@ def handle_weekly_plan(user: User, business: Optional[Business]) -> str:
     )
 
     try:
-        plan = _call_claude(api_key, system, "בני תוכנית תוכן שבועית.", max_tokens=900)
+        plan = _call_openai(api_key, system, "בני תוכנית תוכן שבועית.", max_tokens=900)
         brand = _val(business, "brand_name", "העסק")
         return f"📅 תוכנית תוכן שבועית — {brand}\n\n{plan}"
     except Exception as e:
@@ -91,32 +91,42 @@ def handle_weekly_plan(user: User, business: Optional[Business]) -> str:
         return "מצטערת, לא הצלחתי לייצר תוכנית כרגע. נסי שוב בעוד רגע."
 
 
-def _call_claude(api_key: str, system: str, message: str, max_tokens: int = 350) -> str:
+def _call_openai(api_key: str, system: str, message: str, max_tokens: int = 350) -> str:
     res = requests.post(
         _API_URL,
         headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
+            "Authorization": f"Bearer {api_key}",
             "content-type": "application/json",
         },
         json={
             "model": _MODEL,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": [{"role": "user", "content": message}],
+            "instructions": system,
+            "input": message,
+            "max_output_tokens": max_tokens,
+            "store": False,
         },
         timeout=25,
     )
     data = res.json()
-    print(f"[FREE_CHAT] Claude status={res.status_code}")
-    if res.status_code != 200 or "content" not in data:
-        raise RuntimeError(f"Claude API error: {data}")
-    return data["content"][0]["text"].strip()
+    print(f"[FREE_CHAT] OpenAI status={res.status_code} request_id={res.headers.get('x-request-id', '')}")
+    if res.status_code != 200:
+        raise RuntimeError(f"OpenAI API error: {data}")
+    return _extract_output_text(data)
+
+
+def _extract_output_text(data: dict) -> str:
+    for item in data.get("output", []):
+        if item.get("type") != "message":
+            continue
+        for content in item.get("content", []):
+            if content.get("type") == "output_text" and content.get("text"):
+                return content["text"].strip()
+    raise RuntimeError("OpenAI response did not contain output text")
 
 
 def describe_image_accessibility(image_b64: str, mime_type: str, extra_note: str = None) -> str:
-    """Describe an image in Hebrew for a blind user using Claude Vision."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    """Describe an image in Hebrew for a blind user using GPT vision."""
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return "לא הצלחתי לתאר את התמונה."
 
@@ -136,37 +146,33 @@ def describe_image_accessibility(image_b64: str, mime_type: str, extra_note: str
         res = requests.post(
             _API_URL,
             headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
+                "Authorization": f"Bearer {api_key}",
                 "content-type": "application/json",
             },
             json={
                 "model": _MODEL,
-                "max_tokens": 300,
-                "system": system,
-                "messages": [{
+                "instructions": system,
+                "input": [{
                     "role": "user",
                     "content": [
+                        {"type": "input_text", "text": "תארי לי את התמונה."},
                         {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": base_mime,
-                                "data": image_b64,
-                            },
+                            "type": "input_image",
+                            "image_url": f"data:{base_mime};base64,{image_b64}",
                         },
-                        {"type": "text", "text": "תארי לי את התמונה."},
                     ],
                 }],
+                "max_output_tokens": 300,
+                "store": False,
             },
             timeout=25,
         )
         data = res.json()
         print(f"[VISION] status={res.status_code}")
-        if res.status_code != 200 or "content" not in data:
+        if res.status_code != 200:
             print(f"[VISION] error: {data}")
             return "לא הצלחתי לתאר את התמונה."
-        return data["content"][0]["text"].strip()
+        return _extract_output_text(data)
     except Exception as e:
         print(f"[VISION ERROR] {repr(e)}")
         return "לא הצלחתי לתאר את התמונה."
