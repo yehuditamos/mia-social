@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.brain.decision_layer import _parse_image_message
-from src.brain.image_edit_flow import is_image_edit_request
+from src.brain.image_edit_flow import is_delegation_request, is_image_edit_request
 from src.specialists.media.gpt_image_editor import _build_prompt, _extension_for, edit_for_story
 
 
@@ -23,12 +23,24 @@ class ImageEditIntentTests(unittest.TestCase):
         self.assertTrue(is_image_edit_request("מיה קחי את התמונה ותעלי אותה ערוכה"))
         self.assertFalse(is_image_edit_request("תעלי את התמונה כמות שהיא"))
 
+    def test_trust_means_delegation_not_literal_copy(self):
+        self.assertTrue(is_delegation_request("סומכת עלייך, תחליטי את"))
+
 
 class ImageEditorPromptTests(unittest.TestCase):
     def test_prompt_preserves_identity(self):
         prompt = _build_prompt("תעשי רקע זוהר בצבעי הסטודיו")
         self.assertIn("Preserve every person's identity", prompt)
         self.assertIn("תעשי רקע זוהר בצבעי הסטודיו", prompt)
+
+    def test_prompt_requires_execution_first_creative(self):
+        prompt = _build_prompt(
+            "סומכת עלייך",
+            "Brand: MamaFitness\nBusiness goals: bring new trainees",
+        )
+        self.assertIn("owner should only need to approve", prompt)
+        self.assertIn("NEVER print those phrases", prompt)
+        self.assertIn("MamaFitness", prompt)
 
     def test_supported_extension(self):
         self.assertEqual(_extension_for("image/png"), "png")

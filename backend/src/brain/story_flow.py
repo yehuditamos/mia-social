@@ -42,25 +42,25 @@ _FILTER_MENU = (
 
 def start_story_flow(user: User, business: Business, media_id: str, language: str) -> str:
     from src.whatsapp.media import download_media
-    from src.db.storage import upload_image
+    from src.specialists.media.gpt_image_editor import edit_for_story
+    from src.brain.image_edit_flow import business_creative_context
 
-    media_url = None
     media_kind = "image"
     media_b64_stored = None
     mime_type_stored = None
     try:
         media_b64_stored, mime_type_stored = download_media(media_id)
-        media_url = upload_image(media_b64_stored, mime_type_stored, media_id)
         media_kind = "video" if mime_type_stored.startswith("video/") else "image"
-        print(f"[STORY] uploaded kind={media_kind} url={media_url}")
     except Exception as e:
         print(f"[STORY FAIL step=media_setup] {repr(e)}")
 
-    if not media_url:
+    if not media_b64_stored:
         clear_conversation_flow(user.id)
         return "מצטערת, לא הצלחתי לשמור את הקובץ. שלחי מחדש 🙏"
 
     if media_kind == "video":
+        from src.db.storage import upload_image
+        media_url = upload_image(media_b64_stored, mime_type_stored, media_id)
         update_conversation_flow(user.id, "story_creation", {
             "step": "awaiting_approval",
             "media_url": media_url,
@@ -68,26 +68,28 @@ def start_story_flow(user: User, business: Business, media_id: str, language: st
         })
         return "ראיתי את הסרטון 🎬\nלפרסם כסטורי באינסטגרם?\n\n✅ כן\n❌ ביטול"
 
-    # Describe image for accessibility before asking for style
-    description = ""
-    if media_b64_stored and mime_type_stored:
-        try:
-            from src.brain.free_chat import describe_image_accessibility
-            description = describe_image_accessibility(media_b64_stored, mime_type_stored)
-        except Exception as e:
-            print(f"[STORY] vision error: {repr(e)}")
+    try:
+        edited_url = edit_for_story(
+            media_b64_stored,
+            mime_type_stored,
+            "צרי מהתמונה סטורי שלם, מקצועי ומוכן לפרסום. קבלי את כל החלטות הקריאייטיב והקופי בעצמך.",
+            business_creative_context(business),
+        )
+    except Exception as e:
+        print(f"[STORY GPT EDIT FAIL] {repr(e)}")
+        clear_conversation_flow(user.id)
+        return "לא הצלחתי להפיק כרגע סטורי ברמה שאני מוכנה להגיש לך. התמונה לא פורסמה. נסי שוב בעוד רגע."
 
     update_conversation_flow(user.id, "story_creation", {
-        "step": "awaiting_style",
-        "media_url": media_url,
+        "step": "awaiting_approval",
+        "edited_url": edited_url,
         "media_kind": "image",
+        "generated_by": "gpt-image-2",
     })
-
-    desc_line = f"\n🖼 מיה רואה: {description}\n" if description else ""
     return (
-        f"קיבלתי! 🤩 יאללה בואי נעשה סטורי 🎉"
-        f"{desc_line}\n\n"
-        f"{_STYLE_MENU}"
+        f"__send_image__:{edited_url}\n||||\n"
+        "הכנתי לך סטורי שלם 👆\n\n"
+        "כתבי *מאשרת* כדי שאפרסם, או *ביטול*."
     )
 
 
@@ -97,17 +99,54 @@ def handle_story_flow(user: User, state: ConversationState, business: Business,
 
     if step == "awaiting_image":
         return get_string("story_need_image", language=language)
-    if step == "awaiting_style":
-        return _handle_style(user, state, business, message, language)
-    if step == "awaiting_caption":
-        return _handle_caption(user, state, business, message, language)
-    if step == "awaiting_filter":
-        return _handle_filter(user, state, business, message, language)
+    if step in {"awaiting_style", "awaiting_caption", "awaiting_filter"}:
+        return _upgrade_legacy_story(user, state, business, message)
     if step == "awaiting_approval":
         return _handle_approval(user, state, business, message, language)
 
     clear_conversation_flow(user.id)
     return get_string("main_menu", language=language, name=user.name or "")
+
+
+def _upgrade_legacy_story(user: User, state: ConversationState, business: Business,
+                          message: str) -> str:
+    """Move in-progress menu-based stories to the execution-first GPT flow."""
+    from src.brain.image_edit_flow import business_creative_context
+    from src.specialists.media.gpt_image_editor import edit_story_from_url
+
+    if message.strip().lower() in _CANCEL:
+        clear_conversation_flow(user.id)
+        return "בסדר, ביטלתי. הסטורי לא פורסם."
+
+    data = state.flow_data or {}
+    image_url = data.get("media_url")
+    if not image_url:
+        clear_conversation_flow(user.id)
+        return "הסטורי הישן התאפס. שלחי את התמונה שוב ומיה תכין הכול בעצמה."
+
+    instruction = message.strip()
+    try:
+        edited_url = edit_story_from_url(
+            image_url,
+            instruction,
+            business_creative_context(business),
+        )
+    except Exception as e:
+        print(f"[STORY LEGACY UPGRADE FAIL] {repr(e)}")
+        return "לא הצלחתי להפיק כרגע סטורי ברמה שאני מוכנה להגיש לך. נסי שוב בעוד רגע."
+
+    update_conversation_flow(user.id, "story_creation", {
+        **data,
+        "step": "awaiting_approval",
+        "edited_url": edited_url,
+        "media_kind": "image",
+        "generated_by": "gpt-image-2",
+    })
+    return (
+        f"__send_image__:{edited_url}\n||||\n"
+        "לקחתי את ההחלטות המקצועיות והכנתי סטורי חדש 👆\n\n"
+        "כתבי *מאשרת* כדי שאפרסם, או *ביטול*."
+    )
 
 
 def _handle_style(user: User, state: ConversationState, business: Business,
@@ -240,7 +279,7 @@ def _handle_approval(user: User, state: ConversationState, business: Business,
         clear_conversation_flow(user.id)
         return "בסדר, ביטלתי את הסטורי 🙂"
 
-    if any(word in msg for word in _APPROVE) or msg in _APPROVE:
+    if msg in _APPROVE or msg.startswith("מאשרת "):
         return _publish(user, flow_data, language)
 
     return "לא הבנתי 😊\nכתבי:\n✅ כן — לפרסם\n❌ ביטול"
