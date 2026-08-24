@@ -52,22 +52,36 @@ def _process_and_send(phone_number: str, text: str) -> None:
 
 
 def _needs_background_image_edit(phone_number: str, message_type: str, text: str) -> bool:
-    from src.brain.image_edit_flow import is_image_edit_request
+    from src.brain.image_edit_flow import is_delegation_request, is_image_edit_request
 
-    if message_type == "image":
-        _, marker, caption = text.partition("\n__caption__:")
-        return bool(marker and is_image_edit_request(caption))
-    if message_type != "text" or not is_image_edit_request(text):
-        return False
-
+    state = None
     try:
         from src.specialists.memory.engine import get_conversation_state, get_user
         user = get_user(phone_number)
         state = get_conversation_state(user.id) if user else None
-        return bool(state and state.flow == "awaiting_image_type")
     except Exception as exc:
         print(f"[IMAGE EDIT BACKGROUND] state check failed: {repr(exc)}")
-        return False
+
+    if message_type == "image":
+        _, marker, caption = text.partition("\n__caption__:")
+        if marker and is_image_edit_request(caption):
+            return True
+        return bool(state and state.flow == "story_creation")
+    normalized = text.strip().lower()
+    if (
+        message_type == "text"
+        and state
+        and state.flow == "awaiting_image_type"
+        and normalized in {"2", "2️⃣", "סטורי", "story", "סטוריז"}
+    ):
+        return True
+    if message_type != "text" or not is_image_edit_request(text):
+        return bool(
+            state
+            and state.flow == "story_creation"
+            and is_delegation_request(text)
+        )
+    return bool(state and state.flow in {"awaiting_image_type", "story_creation"})
 
 
 @app.route("/health", methods=["GET"])
